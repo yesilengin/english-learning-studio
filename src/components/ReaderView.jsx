@@ -277,45 +277,41 @@ export default function ReaderView({ book, onBack }) {
 
       {/* Controls */}
       <div className="grid grid-cols-2 gap-4">
-        <button
-          type="button"
-          id="speak-btn"
-          className="btn-gradient py-4 text-lg"
-          ref={(btn) => {
-            if (btn && !btn.dataset.initialized) {
-              btn.dataset.initialized = 'true';
-              btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                const text = sentences[currentSentence];
-                
-                if (!text || !window.speechSynthesis) return;
-                
-                window.speechSynthesis.cancel();
-                const u = new SpeechSynthesisUtterance(text);
-                u.lang = 'en-US';
-                u.rate = 0.9;
-                u.onstart = () => setIsSpeaking(true);
-                u.onend = () => setIsSpeaking(false);
-                window.speechSynthesis.speak(u);
-              }, { passive: false });
-            }
+        <div
+          onClick={() => {
+            const text = sentences[currentSentence];
+            if (!text || !window.speechSynthesis) return;
+            
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'en-US';
+            u.rate = 0.9;
+            u.onstart = () => setIsSpeaking(true);
+            u.onend = () => setIsSpeaking(false);
+            window.speechSynthesis.speak(u);
           }}
+          className="btn-gradient py-4 text-lg cursor-pointer select-none text-center"
+          style={{ touchAction: 'manipulation' }}
         >
-          {isSpeaking ? '⏸️ Durdur' : '🔊 Dinle'}
-        </button>
-        <button
-          onClick={startListening}
+          🔊 Dinle
+        </div>
+        <div
+          onClick={() => {
+            if (isListening || isSpeaking) return;
+            startListening();
+          }}
           className={`
-            py-4 text-lg font-semibold rounded-xl transition-all duration-300
+            py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center
             ${isListening 
-              ? 'bg-danger-500 hover:bg-danger-600 animate-pulse' 
-              : 'bg-success-500 hover:bg-success-600'
+              ? 'bg-danger-500 animate-pulse' 
+              : 'bg-success-500'
             }
+            ${isSpeaking ? 'opacity-30' : ''}
           `}
-          disabled={isSpeaking}
+          style={{ touchAction: 'manipulation' }}
         >
           {isListening ? '🎤 Dinleniyor...' : '🎤 Ben Söyleyeyim'}
-        </button>
+        </div>
       </div>
 
       {/* Recognition Result */}
