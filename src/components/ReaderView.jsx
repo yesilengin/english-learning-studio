@@ -281,16 +281,34 @@ export default function ReaderView({ book, onBack }) {
           onClick={(e) => {
             e.preventDefault();
             if (isSpeaking) {
-              stopSpeech();
+              if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+              }
               setIsSpeaking(false);
             } else {
               const text = sentences[currentSentence];
-              if (text) {
-                speakEnglish(text, {
-                  rate: 0.9,
-                  onStart: () => setIsSpeaking(true),
-                  onEnd: () => setIsSpeaking(false)
-                });
+              if (text && window.speechSynthesis) {
+                // DIRECT speech - same as working word button
+                window.speechSynthesis.cancel();
+                
+                const utterance = new SpeechSynthesisUtterance(String(text));
+                utterance.lang = 'en-US';
+                utterance.rate = 0.9;
+                utterance.pitch = 1.0;
+                utterance.volume = 1.0;
+                
+                const voices = window.speechSynthesis.getVoices();
+                const enVoice = voices.find(v => v.lang === 'en-US' || v.lang.startsWith('en'));
+                if (enVoice) utterance.voice = enVoice;
+                
+                utterance.onstart = () => setIsSpeaking(true);
+                utterance.onend = () => setIsSpeaking(false);
+                utterance.onerror = (err) => {
+                  console.error('Cümle okuma hatası:', err.error);
+                  setIsSpeaking(false);
+                };
+                
+                window.speechSynthesis.speak(utterance);
               }
             }
           }}
