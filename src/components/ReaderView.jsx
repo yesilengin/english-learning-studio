@@ -280,44 +280,17 @@ export default function ReaderView({ book, onBack }) {
         <button
           onClick={(e) => {
             e.preventDefault();
-            e.stopPropagation();
-            
-            console.log('BUTTON CLICKED!', { isSpeaking, currentSentence, sentencesLength: sentences.length });
-            
             if (isSpeaking) {
-              console.log('Stopping speech...');
-              stopSpeaking();
+              stopSpeech();
+              setIsSpeaking(false);
             } else {
               const text = sentences[currentSentence];
-              console.log('Text to speak:', text);
-              
-              if (text && window.speechSynthesis) {
-                console.log('Calling speakEnglish...');
-                setIsSpeaking(true);
-                
-                // Direct call for maximum compatibility
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'en-US';
-                utterance.rate = 0.9;
-                utterance.onstart = () => {
-                  console.log('Speech STARTED!');
-                  setIsSpeaking(true);
-                };
-                utterance.onend = () => {
-                  console.log('Speech ENDED');
-                  setIsSpeaking(false);
-                };
-                utterance.onerror = (err) => {
-                  console.error('Speech ERROR:', err);
-                  setIsSpeaking(false);
-                  alert('Ses hatası: ' + err.error);
-                };
-                
-                console.log('Speaking now...');
-                window.speechSynthesis.speak(utterance);
-              } else {
-                alert('❌ Ses özelliği kullanılamıyor veya metin yok');
+              if (text) {
+                speakEnglish(text, {
+                  rate: 0.9,
+                  onStart: () => setIsSpeaking(true),
+                  onEnd: () => setIsSpeaking(false)
+                });
               }
             }
           }}
