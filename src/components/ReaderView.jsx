@@ -278,7 +278,21 @@ export default function ReaderView({ book, onBack }) {
       {/* Controls */}
       <div className="grid grid-cols-2 gap-4">
         <button
-          onClick={() => isSpeaking ? stopSpeaking() : speakSentence()}
+          onClick={(e) => {
+            e.preventDefault();
+            if (isSpeaking) {
+              stopSpeaking();
+            } else {
+              const text = sentences[currentSentence];
+              if (text) {
+                speakEnglish(text, {
+                  rate: 0.9,
+                  onStart: () => setIsSpeaking(true),
+                  onEnd: () => setIsSpeaking(false)
+                });
+              }
+            }
+          }}
           className="btn-gradient py-4 text-lg"
           disabled={isListening}
         >
@@ -394,7 +408,10 @@ function WordPopup({ word, sentence, onClose, onSave, suggestedTranslation, tran
         </div>
 
         <button
-          onClick={speakWord}
+          onClick={(e) => {
+            e.preventDefault();
+            speakEnglish(word, { rate: 0.8 });
+          }}
           className="bg-primary-500/20 text-primary-400 px-4 py-2 rounded-lg mb-4 hover:bg-primary-500/30 transition-colors"
         >
           🔊 Dinle

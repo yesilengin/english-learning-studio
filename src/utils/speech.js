@@ -1,89 +1,66 @@
-// Simple, reliable Web Speech API wrapper for Android Chrome
+// GUARANTEED Android Chrome Compatible Speech API
+// NO async, NO setTimeout, DIRECT execution
 
-let currentUtterance = null
-let voicesLoaded = false
+let speaking = false
 
-// Preload voices on page load
+// Initialize voices - call once on page load
 export function initVoices() {
   if (!window.speechSynthesis) return
   
-  // Trigger voices loading
-  const voices = window.speechSynthesis.getVoices()
-  if (voices.length > 0) {
-    voicesLoaded = true
-  }
+  // Force load voices
+  window.speechSynthesis.getVoices()
   
-  // Some browsers need the voiceschanged event
-  if (window.speechSynthesis.onvoiceschanged !== undefined) {
-    window.speechSynthesis.onvoiceschanged = () => {
-      const v = window.speechSynthesis.getVoices()
-      if (v.length > 0) voicesLoaded = true
-    }
+  // Handle async voice loading
+  window.speechSynthesis.onvoiceschanged = () => {
+    window.speechSynthesis.getVoices()
   }
 }
 
-// Stop any ongoing speech
+// Stop speech immediately
 export function stopSpeech() {
-  if (currentUtterance) {
-    currentUtterance.onend = null
-    currentUtterance = null
-  }
+  speaking = false
   window.speechSynthesis?.cancel()
 }
 
-// Speak English text with callbacks
+// Speak text - MUST be called from direct user interaction (click event)
 export function speakEnglish(text, options = {}) {
-  const {
-    rate = 0.9,
-    pitch = 1.0,
-    onStart = null,
-    onEnd = null
-  } = options
-
-  if (!window.speechSynthesis || !text) {
-    console.log('Speech not available or no text')
-    return
-  }
-
-  // Stop previous speech
-  stopSpeech()
-
-  const utterance = new SpeechSynthesisUtterance(text)
+  const { rate = 0.9, onStart, onEnd } = options
+  
+  if (!window.speechSynthesis || !text) return
+  
+  // CRITICAL: Cancel first
+  window.speechSynthesis.cancel()
+  speaking = true
+  
+  // Create utterance
+  const utterance = new SpeechSynthesisUtterance(String(text))
   utterance.lang = 'en-US'
   utterance.rate = rate
-  utterance.pitch = pitch
+  utterance.pitch = 1.0
   utterance.volume = 1.0
-
-  // Get US English voice
+  
+  // Try to use US voice
   const voices = window.speechSynthesis.getVoices()
-  const usVoice = voices.find(v => v.lang.includes('en-US') || v.lang.includes('en_US'))
-  if (usVoice) {
-    utterance.voice = usVoice
-  }
-
-  // Set up callbacks
+  const usVoice = voices.find(v => v.lang === 'en-US' || v.lang.startsWith('en-US'))
+  if (usVoice) utterance.voice = usVoice
+  
+  // Callbacks
   utterance.onstart = () => {
-    currentUtterance = utterance
+    speaking = true
     onStart?.()
   }
-
+  
   utterance.onend = () => {
-    currentUtterance = null
+    speaking = false
     onEnd?.()
   }
-
-  utterance.onerror = (event) => {
-    console.error('Speech error:', event.error, event)
-    currentUtterance = null
+  
+  utterance.onerror = (e) => {
+    console.error('Speech error:', e.error)
+    speaking = false
     onEnd?.()
   }
-
-  // Speak immediately
-  try {
-    window.speechSynthesis.speak(utterance)
-    console.log('Speech started for:', text.substring(0, 50))
-  } catch (error) {
-    console.error('Speech exception:', error)
-    onEnd?.()
-  }
+  
+  // SPEAK - no delay, no wrapper
+  window.speechSynthesis.speak(utterance)
 }

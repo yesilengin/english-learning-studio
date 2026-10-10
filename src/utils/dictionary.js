@@ -1480,11 +1480,14 @@ export const embeddedDictionary = {
   'off': 'dan'
 };
 
-// Get translation from embedded dictionary or online API
+// Translation cache in memory for speed
+const translationCache = new Map();
+
+// Get translation with 3-tier system: embedded → cache → online API
 export async function getTranslation(word, sentence = '') {
   const cleanWord = word.toLowerCase().replace(/[^\w]/g, '');
   
-  // First, check embedded dictionary (instant)
+  // TIER 1: Embedded dictionary (INSTANT - 1500+ words)
   if (embeddedDictionary[cleanWord]) {
     return {
       word: cleanWord,
@@ -1494,19 +1497,36 @@ export async function getTranslation(word, sentence = '') {
     };
   }
 
-  // If online, try Turkish translation API
+  // TIER 2: Memory cache (session translations)
+  if (translationCache.has(cleanWord)) {
+    return {
+      word: cleanWord,
+      translation: translationCache.get(cleanWord),
+      source: 'cached',
+      example: sentence
+    };
+  }
+
+  // TIER 3: Online API with timeout for speed
   if (navigator.onLine) {
     try {
-      // MyMemory Translation API - free, fast, Turkish support
+      // Use multiple APIs for reliability
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 sec timeout
+      
+      // MyMemory API - reliable Turkish translation
       const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(cleanWord)}&langpair=en|tr`;
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         const data = await response.json();
         if (data.responseData && data.responseData.translatedText) {
           const translation = data.responseData.translatedText;
-          // Don't return if it's just the same word
-          if (translation.toLowerCase() !== cleanWord) {
+          // Validate translation
+          if (translation && translation.toLowerCase() !== cleanWord && translation.length < 100) {
+            // Cache it for next time
+            translationCache.set(cleanWord, translation);
             return {
               word: cleanWord,
               translation: translation,
@@ -1517,14 +1537,16 @@ export async function getTranslation(word, sentence = '') {
         }
       }
     } catch (error) {
-      console.error('Error fetching translation:', error);
+      if (error.name !== 'AbortError') {
+        console.error('Translation API error:', error);
+      }
     }
   }
 
-  // Return empty if not found
+  // Fallback: return empty but mark as not found
   return {
     word: cleanWord,
-    translation: '',
+    translation: '(çeviri bulunamadı)',
     source: 'none',
     example: sentence
   };

@@ -173,7 +173,10 @@ export default function CardsView({ onStatsUpdate }) {
                     {card.word}
                   </h2>
                   <button
-                    onClick={() => speakWord(card.word)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      speakEnglish(card.word, { rate: 0.85 });
+                    }}
                     className="glass-card p-3 hover:bg-white/20 transition-colors ripple"
                   >
                     🔊
@@ -189,7 +192,10 @@ export default function CardsView({ onStatsUpdate }) {
                     "{card.sentence}"
                   </p>
                   <button
-                    onClick={() => speakSentence(card.sentence)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      speakEnglish(card.sentence, { rate: 0.9 });
+                    }}
                     className="text-xl hover:scale-110 transition-transform"
                   >
                     🔊
