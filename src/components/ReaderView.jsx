@@ -279,51 +279,41 @@ export default function ReaderView({ book, onBack }) {
       <div className="grid grid-cols-2 gap-4">
         <button
           type="button"
-          onClick={() => {
-            alert('BUTTON CLICKED!');
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            alert('TOUCH!');
             const text = sentences[currentSentence];
-            alert('Text: ' + (text ? text.substring(0, 50) : 'YOK!'));
             
-            if (isSpeaking) {
-              if (window.speechSynthesis) {
-                window.speechSynthesis.cancel();
-              }
-              setIsSpeaking(false);
-            } else {
-              if (text && window.speechSynthesis) {
-                alert('Speech başlatılıyor...');
-                window.speechSynthesis.cancel();
-                
-                const utterance = new SpeechSynthesisUtterance(String(text));
-                utterance.lang = 'en-US';
-                utterance.rate = 0.9;
-                utterance.pitch = 1.0;
-                utterance.volume = 1.0;
-                
-                const voices = window.speechSynthesis.getVoices();
-                const enVoice = voices.find(v => v.lang === 'en-US' || v.lang.startsWith('en'));
-                if (enVoice) utterance.voice = enVoice;
-                
-                utterance.onstart = () => {
-                  alert('SPEECH STARTED!');
-                  setIsSpeaking(true);
-                };
-                utterance.onend = () => setIsSpeaking(false);
-                utterance.onerror = (err) => {
-                  alert('ERROR: ' + err.error);
-                  setIsSpeaking(false);
-                };
-                
-                window.speechSynthesis.speak(utterance);
-                alert('speak() called');
-              } else {
-                alert('Text yok veya speechSynthesis yok!');
-              }
+            if (!text) {
+              alert('Cümle yok!');
+              return;
             }
+            
+            if (!window.speechSynthesis) {
+              alert('speechSynthesis yok!');
+              return;
+            }
+            
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(String(text));
+            utterance.lang = 'en-US';
+            utterance.rate = 0.9;
+            
+            utterance.onstart = () => alert('Başladı!');
+            utterance.onerror = (err) => alert('Hata: ' + err.error);
+            
+            window.speechSynthesis.speak(utterance);
+            alert('speak() çağrıldı');
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            alert('CLICK!');
           }}
           className="btn-gradient py-4 text-lg"
+          style={{ touchAction: 'manipulation' }}
         >
-          {isSpeaking ? '⏸️ Durdur' : '🔊 Dinle'}
+          🔊 Dinle
         </button>
         <button
           onClick={startListening}

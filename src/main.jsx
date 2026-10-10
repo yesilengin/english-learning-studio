@@ -5,7 +5,7 @@ import './index.css'
 import { initializeDatabase } from './db.js'
 
 // App version - force reload if changed
-const APP_VERSION = '1.0.2'
+const APP_VERSION = '1.0.3'
 const STORED_VERSION = localStorage.getItem('app_version')
 
 if (STORED_VERSION !== APP_VERSION) {
