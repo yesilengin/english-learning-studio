@@ -94,12 +94,23 @@ export default function ReaderView({ book, onBack }) {
 
   const speakSentence = (sentenceIndex = currentSentence) => {
     const text = sentences[sentenceIndex]
-    if (!text) return
+    console.log('speakSentence called:', { sentenceIndex, text: text?.substring(0, 50), totalSentences: sentences.length })
+    
+    if (!text) {
+      console.error('No text to speak!')
+      return
+    }
 
     speakEnglish(text, {
       rate: 0.9,
-      onStart: () => setIsSpeaking(true),
-      onEnd: () => setIsSpeaking(false)
+      onStart: () => {
+        console.log('Speech started')
+        setIsSpeaking(true)
+      },
+      onEnd: () => {
+        console.log('Speech ended')
+        setIsSpeaking(false)
+      }
     })
   }
 
@@ -149,14 +160,23 @@ export default function ReaderView({ book, onBack }) {
   const handleWordClick = async (word, sentence) => {
     stopSpeaking()
     
-    // Try to get translation
-    const translation = await getTranslation(word, sentence)
+    // Open popup immediately for fast UX
     setShowWordPopup({ 
       word, 
       sentence,
+      suggestedTranslation: '...', // Loading indicator
+      translationSource: null
+    })
+
+    // Get translation in background
+    const translation = await getTranslation(word, sentence)
+    
+    // Update popup with translation
+    setShowWordPopup(prev => prev ? {
+      ...prev,
       suggestedTranslation: translation.translation,
       translationSource: translation.source
-    })
+    } : null)
   }
 
   const saveWord = async (translation) => {
