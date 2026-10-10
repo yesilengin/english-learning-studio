@@ -1,8 +1,16 @@
 import ePub from 'epubjs';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Set PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Set PDF.js worker - use local copy
+try {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+  ).toString();
+} catch (e) {
+  // Fallback - disable PDF worker if fails
+  console.warn('PDF worker setup failed, PDF parsing may not work');
+}
 
 /**
  * Parse .txt file

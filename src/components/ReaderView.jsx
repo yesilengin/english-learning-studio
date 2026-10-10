@@ -279,41 +279,29 @@ export default function ReaderView({ book, onBack }) {
       <div className="grid grid-cols-2 gap-4">
         <button
           type="button"
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            alert('TOUCH!');
-            const text = sentences[currentSentence];
-            
-            if (!text) {
-              alert('Cümle yok!');
-              return;
-            }
-            
-            if (!window.speechSynthesis) {
-              alert('speechSynthesis yok!');
-              return;
-            }
-            
-            window.speechSynthesis.cancel();
-            
-            const utterance = new SpeechSynthesisUtterance(String(text));
-            utterance.lang = 'en-US';
-            utterance.rate = 0.9;
-            
-            utterance.onstart = () => alert('Başladı!');
-            utterance.onerror = (err) => alert('Hata: ' + err.error);
-            
-            window.speechSynthesis.speak(utterance);
-            alert('speak() çağrıldı');
-          }}
-          onClick={(e) => {
-            e.preventDefault();
-            alert('CLICK!');
-          }}
+          id="speak-btn"
           className="btn-gradient py-4 text-lg"
-          style={{ touchAction: 'manipulation' }}
+          ref={(btn) => {
+            if (btn && !btn.dataset.initialized) {
+              btn.dataset.initialized = 'true';
+              btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const text = sentences[currentSentence];
+                
+                if (!text || !window.speechSynthesis) return;
+                
+                window.speechSynthesis.cancel();
+                const u = new SpeechSynthesisUtterance(text);
+                u.lang = 'en-US';
+                u.rate = 0.9;
+                u.onstart = () => setIsSpeaking(true);
+                u.onend = () => setIsSpeaking(false);
+                window.speechSynthesis.speak(u);
+              }, { passive: false });
+            }
+          }}
         >
-          🔊 Dinle
+          {isSpeaking ? '⏸️ Durdur' : '🔊 Dinle'}
         </button>
         <button
           onClick={startListening}
