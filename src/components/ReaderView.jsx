@@ -280,16 +280,44 @@ export default function ReaderView({ book, onBack }) {
         <button
           onClick={(e) => {
             e.preventDefault();
+            e.stopPropagation();
+            
+            console.log('BUTTON CLICKED!', { isSpeaking, currentSentence, sentencesLength: sentences.length });
+            
             if (isSpeaking) {
+              console.log('Stopping speech...');
               stopSpeaking();
             } else {
               const text = sentences[currentSentence];
-              if (text) {
-                speakEnglish(text, {
-                  rate: 0.9,
-                  onStart: () => setIsSpeaking(true),
-                  onEnd: () => setIsSpeaking(false)
-                });
+              console.log('Text to speak:', text);
+              
+              if (text && window.speechSynthesis) {
+                console.log('Calling speakEnglish...');
+                setIsSpeaking(true);
+                
+                // Direct call for maximum compatibility
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'en-US';
+                utterance.rate = 0.9;
+                utterance.onstart = () => {
+                  console.log('Speech STARTED!');
+                  setIsSpeaking(true);
+                };
+                utterance.onend = () => {
+                  console.log('Speech ENDED');
+                  setIsSpeaking(false);
+                };
+                utterance.onerror = (err) => {
+                  console.error('Speech ERROR:', err);
+                  setIsSpeaking(false);
+                  alert('Ses hatası: ' + err.error);
+                };
+                
+                console.log('Speaking now...');
+                window.speechSynthesis.speak(utterance);
+              } else {
+                alert('❌ Ses özelliği kullanılamıyor veya metin yok');
               }
             }
           }}
@@ -372,26 +400,29 @@ export default function ReaderView({ book, onBack }) {
           translationSource={showWordPopup.translationSource}
           onClose={() => setShowWordPopup(null)}
           onSave={saveWord}
+          speakEnglish={speakEnglish}
         />
       )}
     </div>
   )
 }
 
-function WordPopup({ word, sentence, onClose, onSave, suggestedTranslation, translationSource }) {
+function WordPopup({ word, sentence, onClose, onSave, suggestedTranslation, translationSource, speakEnglish }) {
   const [translation, setTranslation] = useState(suggestedTranslation || '')
-  const [loading, setLoading] = useState(false)
+
+  // Update translation when it loads
+  useEffect(() => {
+    if (suggestedTranslation && suggestedTranslation !== '...') {
+      setTranslation(suggestedTranslation)
+    }
+  }, [suggestedTranslation])
 
   const handleSave = () => {
-    if (!translation.trim()) {
+    if (!translation.trim() || translation === '...' || translation === '(çeviri bulunamadı)') {
       alert('❌ Lütfen Türkçe anlamını gir')
       return
     }
     onSave(translation)
-  }
-
-  const speakWord = () => {
-    speakEnglish(word, { rate: 0.8 })
   }
 
   return (
