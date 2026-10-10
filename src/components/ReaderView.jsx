@@ -278,17 +278,20 @@ export default function ReaderView({ book, onBack }) {
       {/* Controls */}
       <div className="grid grid-cols-2 gap-4">
         <button
-          onClick={(e) => {
-            e.preventDefault();
+          type="button"
+          onClick={() => {
+            alert('BUTTON CLICKED!');
+            const text = sentences[currentSentence];
+            alert('Text: ' + (text ? text.substring(0, 50) : 'YOK!'));
+            
             if (isSpeaking) {
               if (window.speechSynthesis) {
                 window.speechSynthesis.cancel();
               }
               setIsSpeaking(false);
             } else {
-              const text = sentences[currentSentence];
               if (text && window.speechSynthesis) {
-                // DIRECT speech - same as working word button
+                alert('Speech başlatılıyor...');
                 window.speechSynthesis.cancel();
                 
                 const utterance = new SpeechSynthesisUtterance(String(text));
@@ -301,19 +304,24 @@ export default function ReaderView({ book, onBack }) {
                 const enVoice = voices.find(v => v.lang === 'en-US' || v.lang.startsWith('en'));
                 if (enVoice) utterance.voice = enVoice;
                 
-                utterance.onstart = () => setIsSpeaking(true);
+                utterance.onstart = () => {
+                  alert('SPEECH STARTED!');
+                  setIsSpeaking(true);
+                };
                 utterance.onend = () => setIsSpeaking(false);
                 utterance.onerror = (err) => {
-                  console.error('Cümle okuma hatası:', err.error);
+                  alert('ERROR: ' + err.error);
                   setIsSpeaking(false);
                 };
                 
                 window.speechSynthesis.speak(utterance);
+                alert('speak() called');
+              } else {
+                alert('Text yok veya speechSynthesis yok!');
               }
             }
           }}
           className="btn-gradient py-4 text-lg"
-          disabled={isListening}
         >
           {isSpeaking ? '⏸️ Durdur' : '🔊 Dinle'}
         </button>
