@@ -1,16 +1,8 @@
-// Android Chrome compatible TTS - tested and working
-let voicesReady = false
-
+// Direct speech - NO delays, NO async - works on Android Chrome
 export function initVoices() {
   if (!window.speechSynthesis) return
-  
-  const loadVoices = () => {
-    const voices = window.speechSynthesis.getVoices()
-    if (voices.length > 0) voicesReady = true
-  }
-  
-  loadVoices()
-  window.speechSynthesis.onvoiceschanged = loadVoices
+  window.speechSynthesis.getVoices()
+  window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices()
 }
 
 export function stopSpeech() {
@@ -27,29 +19,29 @@ export function speakEnglish(text, options = {}) {
     return
   }
   
-  // Cancel any ongoing speech
+  // Cancel first
   window.speechSynthesis.cancel()
   
-  // Small delay for Android - allows user gesture to propagate
-  setTimeout(() => {
-    const utterance = new SpeechSynthesisUtterance(String(text))
-    utterance.lang = 'en-US'
-    utterance.rate = rate
-    utterance.pitch = 1.0
-    utterance.volume = 1.0
-    
-    // Get English voice if available
-    const voices = window.speechSynthesis.getVoices()
-    const enVoice = voices.find(v => v.lang === 'en-US' || v.lang.startsWith('en'))
-    if (enVoice) utterance.voice = enVoice
-    
-    utterance.onstart = () => onStart?.()
-    utterance.onend = () => onEnd?.()
-    utterance.onerror = (e) => {
-      console.error('TTS Error:', e.error)
-      onEnd?.()
-    }
-    
-    window.speechSynthesis.speak(utterance)
-  }, 50)
+  // Create and speak - DIRECT, NO DELAY
+  const utterance = new SpeechSynthesisUtterance(String(text))
+  utterance.lang = 'en-US'
+  utterance.rate = rate
+  utterance.pitch = 1.0
+  utterance.volume = 1.0
+  
+  // Get voice
+  const voices = window.speechSynthesis.getVoices()
+  const enVoice = voices.find(v => v.lang === 'en-US' || v.lang.startsWith('en'))
+  if (enVoice) utterance.voice = enVoice
+  
+  // Callbacks
+  utterance.onstart = () => onStart?.()
+  utterance.onend = () => onEnd?.()
+  utterance.onerror = (e) => {
+    console.error('TTS Error:', e.error)
+    onEnd?.()
+  }
+  
+  // SPEAK IMMEDIATELY
+  window.speechSynthesis.speak(utterance)
 }
