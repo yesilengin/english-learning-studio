@@ -20,6 +20,15 @@ db.version(1).stores({
   settings: 'key, value'
 });
 
+db.version(2).stores({
+  books: '++id, title, content, language, uploadDate, lastReadPosition, totalSentences, progress',
+  words: '++id, word, translation, sentence, bookId, dateAdded, status, reviewCount, easeFactor, interval, dueDate',
+  flashcards: '++id, wordId, front, back, ease, interval, repetitions, dueDate, lastReview',
+  stats: '++id, date, readingTime, wordsLearned, cardsReviewed, speakingPractice, streak',
+  settings: 'key, value',
+  translationCache: 'word, savedAt'
+});
+
 // Default settings
 export const defaultSettings = {
   dailyCardLimit: 10,

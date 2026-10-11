@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { db, addWord, updateTodayStats } from '../db'
-import { getTranslation } from '../utils/dictionary'
+import { getTranslation, lookupFast } from '../utils/dictionary'
 import { initVoices, speakEnglish, stopSpeech } from '../utils/speech'
+import { playSentence, stopSentenceAudio } from '../utils/sentenceAudio'
 
 export default function ReaderView({ book, onBack }) {
   const [sentences, setSentences] = useState([])
@@ -11,8 +12,12 @@ export default function ReaderView({ book, onBack }) {
   const [showWordPopup, setShowWordPopup] = useState(null)
   const [recognizedText, setRecognizedText] = useState('')
   const [accuracy, setAccuracy] = useState(null)
+  const [activeWordIndex, setActiveWordIndex] = useState(-1)
+  const [liveTranslation, setLiveTranslation] = useState('')
+  const [listenError, setListenError] = useState('')
   
   const recognitionRef = useRef(null)
+  const sentenceRef = useRef('')
   const readingTimerRef = useRef(null)
   const readingStartTime = useRef(Date.now())
 
@@ -29,33 +34,6 @@ export default function ReaderView({ book, onBack }) {
     // Set current position
     setCurrentSentence(book.lastReadPosition || 0)
 
-    // Initialize speech recognition
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-      recognitionRef.current = new SpeechRecognition()
-      recognitionRef.current.lang = 'en-US'
-      recognitionRef.current.continuous = false
-      recognitionRef.current.interimResults = false
-
-      recognitionRef.current.onresult = (event) => {
-        const transcript = event.results[0][0].transcript
-        setRecognizedText(transcript)
-        calculateAccuracy(sentences[currentSentence], transcript)
-      }
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false)
-      }
-
-      recognitionRef.current.onerror = (event) => {
-        console.error('Speech recognition error:', event.error)
-        setIsListening(false)
-        if (event.error === 'no-speech') {
-          alert('🎤 Ses algılanamadı. Lütfen tekrar dene.')
-        }
-      }
-    }
-
     // Start reading timer
     readingStartTime.current = Date.now()
     readingTimerRef.current = setInterval(async () => {
@@ -64,12 +42,11 @@ export default function ReaderView({ book, onBack }) {
     }, 30000) // Update every 30 seconds
 
     return () => {
-      // Stop any ongoing speech
       stopSpeech()
+      stopSentenceAudio()
       
-      // Stop recognition
       if (recognitionRef.current) {
-        recognitionRef.current.stop()
+        try { recognitionRef.current.abort() } catch { /* already stopped */ }
       }
 
       // Save reading position
@@ -91,6 +68,30 @@ export default function ReaderView({ book, onBack }) {
       updateTodayStats({ readingTime: totalElapsed })
     }
   }, [book])
+
+  useEffect(() => {
+    const text = sentences[currentSentence] || ''
+    const raw = text.split(/\s+/).filter(Boolean)[activeWordIndex]
+    if (!raw) {
+      setLiveTranslation('')
+      return
+    }
+
+    const fast = lookupFast(raw)
+    if (fast) {
+      setLiveTranslation(fast)
+      return
+    }
+
+    let cancel = false
+    setLiveTranslation('...')
+    getTranslation(raw, text).then((result) => {
+      if (!cancel) setLiveTranslation(result.translation || '—')
+    })
+    return () => {
+      cancel = true
+    }
+  }, [activeWordIndex, currentSentence, sentences])
 
   const speakSentence = (sentenceIndex = currentSentence) => {
     const text = sentences[sentenceIndex]
@@ -116,11 +117,13 @@ export default function ReaderView({ book, onBack }) {
 
   const stopSpeaking = () => {
     stopSpeech()
+    stopSentenceAudio()
     setIsSpeaking(false)
   }
 
   const startListening = () => {
-    if (!recognitionRef.current) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
       alert('😔 Konuşma tanıma bu cihazda desteklenmiyor.')
       return
     }
@@ -130,12 +133,39 @@ export default function ReaderView({ book, onBack }) {
       return
     }
 
+    stopSpeaking()
+
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort() } catch { /* already stopped */ }
+    }
+
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-US'
+    recognition.continuous = false
+    recognition.interimResults = false
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript
+      setRecognizedText(transcript)
+      calculateAccuracy(sentenceRef.current, transcript)
+    }
+    recognition.onend = () => setIsListening(false)
+    recognition.onerror = (event) => {
+      setIsListening(false)
+      if (event.error === 'aborted') return
+      if (event.error === 'no-speech') {
+        alert('🎤 Ses algılanamadı. Lütfen tekrar dene.')
+      } else if (event.error === 'not-allowed') {
+        alert('🎤 Mikrofon izni gerekli.')
+      }
+    }
+
+    recognitionRef.current = recognition
     setRecognizedText('')
     setAccuracy(null)
     setIsListening(true)
-    
+
     try {
-      recognitionRef.current.start()
+      recognition.start()
     } catch (error) {
       console.error('Recognition start error:', error)
       setIsListening(false)
@@ -227,6 +257,8 @@ export default function ReaderView({ book, onBack }) {
   }
 
   const currentText = sentences[currentSentence] || ''
+  sentenceRef.current = currentText
+  const words = currentText.split(/\s+/).filter(Boolean)
   const progress = ((currentSentence + 1) / sentences.length) * 100
 
   return (
@@ -258,76 +290,64 @@ export default function ReaderView({ book, onBack }) {
       </div>
 
       {/* Main Reading Area */}
-      <div className="glass-card p-8 min-h-[300px] flex items-center justify-center">
+      <div className="glass-card p-8 min-h-[300px] flex flex-col items-center justify-center gap-6">
         <p className="text-2xl leading-relaxed text-center select-none">
-          {currentText.split(/\s+/).map((word, idx) => (
+          {words.map((word, idx) => (
             <span
               key={idx}
               onClick={() => handleWordClick(word.replace(/[^\w]/g, ''), currentText)}
               className={`
-                cursor-pointer hover:bg-primary-500/30 px-1 rounded transition-colors
-                ${isSpeaking ? 'highlight-word' : ''}
+                cursor-pointer px-1 rounded transition-colors
+                ${idx === activeWordIndex
+                  ? 'bg-amber-400/40 text-amber-100'
+                  : 'hover:bg-primary-500/30'}
               `}
             >
               {word}{' '}
             </span>
           ))}
         </p>
+        {activeWordIndex >= 0 && (
+          <div className="text-center">
+            <p className="text-sm text-gray-400">{words[activeWordIndex]}</p>
+            <p className="text-3xl font-bold text-amber-300">{liveTranslation || '...'}</p>
+          </div>
+        )}
       </div>
 
       {/* Controls */}
       <div className="grid grid-cols-2 gap-4">
         <div
           onClick={() => {
-            const text = sentences[currentSentence];
-            if (!text || !window.speechSynthesis) return;
-            
-            // ALWAYS cancel first - clean slate
-            window.speechSynthesis.cancel();
-            
-            // Small delay to ensure cancel completes
-            setTimeout(() => {
-              const u = new SpeechSynthesisUtterance(text);
-              u.lang = 'en-US';
-              u.rate = 0.9;
-              u.onend = () => {
-                // Force cleanup
-                window.speechSynthesis.cancel();
-              };
-              window.speechSynthesis.speak(u);
-            }, 50);
+            if (isSpeaking) {
+              stopSpeaking()
+              return
+            }
+            const text = sentences[currentSentence]
+            if (!text) return
+            setListenError('')
+            setIsSpeaking(true)
+            setActiveWordIndex(0)
+            playSentence(text, {
+              onTime: (ratio) => {
+                const parts = text.split(/\s+/).filter(Boolean)
+                if (!parts.length) return
+                setActiveWordIndex(Math.min(parts.length - 1, Math.floor(ratio * parts.length)))
+              },
+              onEnd: () => setIsSpeaking(false),
+              onError: () => {
+                setIsSpeaking(false)
+                setListenError('Ses hazırlanamadı. İnterneti açıp tekrar dene.')
+              }
+            })
           }}
           className="btn-gradient py-4 text-lg cursor-pointer select-none text-center active:scale-95 transition-transform"
           style={{ touchAction: 'manipulation' }}
         >
-          🔊 Dinle
+          {isSpeaking ? '⏸️ Durdur' : '🔊 Dinle'}
         </div>
         <div
-          onClick={() => {
-            if (!recognitionRef.current) {
-              alert('😔 Konuşma tanıma bu cihazda desteklenmiyor.');
-              return;
-            }
-
-            if (!navigator.onLine) {
-              alert('📡 Konuşma tanıma için internet bağlantısı gerekli.');
-              return;
-            }
-
-            // Cancel any speech first
-            window.speechSynthesis?.cancel();
-            
-            setRecognizedText('');
-            setAccuracy(null);
-            setIsListening(true);
-            
-            try {
-              recognitionRef.current.start();
-            } catch (error) {
-              console.error('Recognition start error:', error);
-              setIsListening(false);
-            }
-          }}
+          onClick={startListening}
           className={`
             py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center active:scale-95 transition-all
             ${isListening 
@@ -340,6 +360,9 @@ export default function ReaderView({ book, onBack }) {
           {isListening ? '🎤 Dinleniyor...' : '🎤 Ben Söyleyeyim'}
         </div>
       </div>
+      {listenError && (
+        <p className="text-center text-sm text-amber-300">{listenError}</p>
+      )}
 
       {/* Recognition Result */}
       {recognizedText && (

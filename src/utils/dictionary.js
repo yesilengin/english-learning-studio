@@ -1,3 +1,5 @@
+import { db } from '../db'
+
 // Simple embedded dictionary with most common English words and their Turkish meanings
 // This will work offline for common words
 export const embeddedDictionary = {
@@ -1483,6 +1485,14 @@ export const embeddedDictionary = {
 // Translation cache in memory for speed
 const translationCache = new Map();
 
+export function lookupFast(raw) {
+  const cleanWord = String(raw || '').toLowerCase().replace(/[^\w]/g, '');
+  if (!cleanWord) return '';
+  if (embeddedDictionary[cleanWord]) return embeddedDictionary[cleanWord];
+  if (translationCache.has(cleanWord)) return translationCache.get(cleanWord);
+  return '';
+}
+
 // Get translation with 3-tier system: embedded → cache → online API
 export async function getTranslation(word, sentence = '') {
   const cleanWord = word.toLowerCase().replace(/[^\w]/g, '');
@@ -1497,7 +1507,7 @@ export async function getTranslation(word, sentence = '') {
     };
   }
 
-  // TIER 2: Memory cache (session translations)
+  // TIER 2: Memory cache, then the phone's saved translations
   if (translationCache.has(cleanWord)) {
     return {
       word: cleanWord,
@@ -1505,6 +1515,21 @@ export async function getTranslation(word, sentence = '') {
       source: 'cached',
       example: sentence
     };
+  }
+
+  try {
+    const saved = await db.translationCache.get(cleanWord);
+    if (saved?.translation) {
+      translationCache.set(cleanWord, saved.translation);
+      return {
+        word: cleanWord,
+        translation: saved.translation,
+        source: 'cached',
+        example: sentence
+      };
+    }
+  } catch {
+    // Store appears after the database upgrade.
   }
 
   // TIER 3: Online API with timeout for speed
@@ -1525,8 +1550,8 @@ export async function getTranslation(word, sentence = '') {
           const translation = data.responseData.translatedText;
           // Validate translation
           if (translation && translation.toLowerCase() !== cleanWord && translation.length < 100) {
-            // Cache it for next time
             translationCache.set(cleanWord, translation);
+            db.translationCache.put({ word: cleanWord, translation, savedAt: Date.now() }).catch(() => {});
             return {
               word: cleanWord,
               translation: translation,
