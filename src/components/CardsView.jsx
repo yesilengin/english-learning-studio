@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { db, getDueWords, reviewWord, updateTodayStats, getSetting } from '../db'
+import { getDueWords, getWordsByLevel, setWordLevel, deleteWord, updateTodayStats, getSetting } from '../db'
 import { initVoices, speakEnglish } from '../utils/speech'
 
 export default function CardsView({ onStatsUpdate }) {
@@ -11,28 +11,33 @@ export default function CardsView({ onStatsUpdate }) {
   const [sessionTime, setSessionTime] = useState(0)
   const [dailyLimit, setDailyLimit] = useState(20)
   const [isFlipped, setIsFlipped] = useState(false)
+  const [shelf, setShelf] = useState('due')
+
+  const levels = [
+    { id: 1, label: 'Her gün' },
+    { id: 2, label: '3 gün' },
+    { id: 3, label: 'Hafta' },
+    { id: 4, label: '2 hafta' },
+    { id: 5, label: 'Ay' }
+  ]
 
   useEffect(() => {
     initVoices()
-    loadCards()
     loadSettings()
-
-    // Session timer
-    const timer = setInterval(() => {
-      setSessionTime(prev => prev + 1)
-      if (sessionTime >= 20 * 60) { // 20 minutes
-        handleEndSession()
-      }
-    }, 1000)
-
+    const timer = setInterval(() => setSessionTime((prev) => prev + 1), 1000)
     return () => clearInterval(timer)
   }, [])
 
-  const loadCards = async () => {
+  useEffect(() => {
+    loadCards(shelf)
+  }, [shelf])
+
+  const loadCards = async (which = shelf) => {
     try {
-      const limit = await getSetting('dailyCardLimit') || 20
-      const words = await getDueWords(limit)
+      const words = which === 'due' ? await getDueWords(500) : await getWordsByLevel(which)
       setDueCards(words)
+      setCurrentCard(0)
+      setIsFlipped(false)
     } catch (error) {
       console.error('Error loading cards:', error)
     } finally {
@@ -45,32 +50,21 @@ export default function CardsView({ onStatsUpdate }) {
     setDailyLimit(limit || 20)
   }
 
-  const handleAnswer = async (quality) => {
+  const placeCard = async (level) => {
     const card = dueCards[currentCard]
     if (!card) return
-
-    await reviewWord(card.id, quality)
+    await setWordLevel(card.id, level)
     await updateTodayStats({ cardsReviewed: 1 })
-
-    setSessionStats(prev => ({
-      reviewed: prev.reviewed + 1,
-      correct: quality >= 3 ? prev.correct + 1 : prev.correct
-    }))
-
-    // Move to next card
-    if (currentCard < dueCards.length - 1) {
-      setCurrentCard(currentCard + 1)
-      setShowAnswer(false)
-      setIsFlipped(false)
-    } else {
-      handleEndSession()
-    }
-
+    setSessionStats((prev) => ({ reviewed: prev.reviewed + 1, correct: prev.correct + 1 }))
+    await loadCards(shelf)
     onStatsUpdate?.()
   }
 
-  const handleEndSession = () => {
-    alert(`🎉 Harika iş çıkardın!\n\n✅ ${sessionStats.reviewed} kart tekrar edildi\n🎯 %${Math.round((sessionStats.correct / Math.max(sessionStats.reviewed, 1)) * 100)} başarı oranı`)
+  const removeCard = async () => {
+    const card = dueCards[currentCard]
+    if (!card) return
+    await deleteWord(card.id)
+    await loadCards(shelf)
   }
 
   const speakWord = (text) => {
@@ -96,15 +90,18 @@ export default function CardsView({ onStatsUpdate }) {
 
   if (dueCards.length === 0) {
     return (
-      <div className="glass-card p-12 text-center animate-scale-in">
-        <div className="text-6xl mb-4">🎉</div>
-        <h3 className="text-2xl font-bold mb-2">Tebrikler!</h3>
-        <p className="text-gray-400 mb-6">
-          Bugün için tekrar edilecek kart yok.
-        </p>
-        <p className="text-sm text-gray-500">
-          Yeni kelimeler eklemek için kitap oku ve kelimeleri kaydet.
-        </p>
+      <div className="space-y-6">
+        <ShelfPicker shelf={shelf} onChange={setShelf} />
+        <div className="glass-card p-12 text-center animate-scale-in">
+          <div className="text-6xl mb-4">🎉</div>
+          <h3 className="text-2xl font-bold mb-2">Tebrikler!</h3>
+          <p className="text-gray-400 mb-6">
+            {shelf === 'due' ? 'Bugün için tekrar edilecek kart yok.' : 'Bu seviyede kelime yok.'}
+          </p>
+          <p className="text-sm text-gray-500">
+            Yeni kelimeler eklemek için kitap oku ve kelimeleri kaydet.
+          </p>
+        </div>
       </div>
     )
   }
@@ -117,6 +114,7 @@ export default function CardsView({ onStatsUpdate }) {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <ShelfPicker shelf={shelf} onChange={setShelf} />
       {/* Header Stats */}
       <div className="grid grid-cols-3 gap-4">
         <div className="glass-card p-4 text-center">
@@ -152,14 +150,17 @@ export default function CardsView({ onStatsUpdate }) {
           {/* Front of Card */}
           <div className="card-flip-front glass-card p-8 absolute inset-0 flex flex-col items-center justify-center">
             <div className="text-sm text-gray-400 mb-4">Türkçe anlamı:</div>
-            <h2 className="text-4xl font-bold mb-6 text-center">
+            <h2 className="text-4xl font-bold mb-4 text-center">
               {card.translation}
             </h2>
+            {card.sentence && (
+              <p className="text-center text-gray-300 italic mb-6">"{card.sentence}"</p>
+            )}
             <button
               onClick={toggleCard}
               className="btn-gradient px-8 py-3"
             >
-              🔄 Cevabı Göster
+              🔄 Çevir
             </button>
           </div>
 
@@ -203,46 +204,71 @@ export default function CardsView({ onStatsUpdate }) {
                 </div>
               </div>
 
-              {/* Answer Buttons */}
-              <div className="grid grid-cols-4 gap-2">
-                <button
-                  onClick={() => handleAnswer(1)}
-                  className="bg-danger-500 hover:bg-danger-600 text-white py-3 rounded-xl font-semibold transition-all hover:scale-105 ripple"
-                >
-                  😔
-                  <div className="text-xs">Zor</div>
-                </button>
-                <button
-                  onClick={() => handleAnswer(2)}
-                  className="bg-warning-500 hover:bg-warning-600 text-white py-3 rounded-xl font-semibold transition-all hover:scale-105 ripple"
-                >
-                  😐
-                  <div className="text-xs">Orta</div>
-                </button>
-                <button
-                  onClick={() => handleAnswer(3)}
-                  className="bg-success-500 hover:bg-success-600 text-white py-3 rounded-xl font-semibold transition-all hover:scale-105 ripple"
-                >
-                  🙂
-                  <div className="text-xs">İyi</div>
-                </button>
-                <button
-                  onClick={() => handleAnswer(4)}
-                  className="bg-primary-500 hover:bg-primary-600 text-white py-3 rounded-xl font-semibold transition-all hover:scale-105 ripple"
-                >
-                  😄
-                  <div className="text-xs">Kolay</div>
-                </button>
-              </div>
+              <button
+                onClick={toggleCard}
+                className="w-full glass-card py-3"
+              >
+                🔄 Tekrar çevir
+              </button>
             </div>
           </div>
         </div>
       </div>
 
+      <div className="grid grid-cols-5 gap-2">
+        {levels.map((level) => (
+          <button
+            key={level.id}
+            type="button"
+            onClick={() => placeCard(level.id)}
+            className={`py-3 rounded-xl text-sm font-semibold ${
+              (card.level || 1) === level.id ? 'bg-primary-500 text-white' : 'glass-card'
+            }`}
+          >
+            {level.label}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={removeCard}
+        className="w-full py-3 rounded-xl bg-danger-500/80 font-semibold"
+      >
+        Karttan sil
+      </button>
+
       {/* Info */}
       <div className="glass-card p-4 text-center text-sm text-gray-400">
-        💡 Kartı çevirip kelimenin İngilizcesini gör, sonra ne kadar iyi bildiğini seç
+        Kartı istediğin kadar çevir. Sonra kelimeyi bir rafa koy.
       </div>
+    </div>
+  )
+}
+
+function ShelfPicker({ shelf, onChange }) {
+  const items = [
+    ['due', 'Bugün'],
+    [1, '1'],
+    [2, '2'],
+    [3, '3'],
+    [4, '4'],
+    [5, '5']
+  ]
+
+  return (
+    <div className="grid grid-cols-6 gap-2">
+      {items.map(([id, label]) => (
+        <button
+          key={label}
+          type="button"
+          onClick={() => onChange(id)}
+          className={`py-3 rounded-xl text-sm font-semibold ${
+            shelf === id ? 'bg-primary-500 text-white' : 'glass-card text-gray-300'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   )
 }

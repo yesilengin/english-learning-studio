@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { db, addWord, updateTodayStats } from '../db'
+import { db, addWord, updateTodayStats, getSetting, updateSetting } from '../db'
 import { getTranslation, lookupFast } from '../utils/dictionary'
 import { initVoices, speakEnglish, stopSpeech } from '../utils/speech'
-import { playSentence, stopSentenceAudio } from '../utils/sentenceAudio'
+import { playSentence, stopSentenceAudio, setSpeechRate } from '../utils/sentenceAudio'
 
 export default function ReaderView({ book, onBack }) {
   const [sentences, setSentences] = useState([])
@@ -15,6 +15,7 @@ export default function ReaderView({ book, onBack }) {
   const [activeWordIndex, setActiveWordIndex] = useState(-1)
   const [liveTranslation, setLiveTranslation] = useState('')
   const [listenError, setListenError] = useState('')
+  const [speechRate, setSpeechRateChoice] = useState(1)
   
   const recognitionRef = useRef(null)
   const sentenceRef = useRef('')
@@ -26,6 +27,11 @@ export default function ReaderView({ book, onBack }) {
 
     // Initialize voices for speech
     initVoices()
+    getSetting('ttsRate').then((value) => {
+      const rate = Number(value) || 1
+      setSpeechRateChoice(rate)
+      setSpeechRate(rate)
+    })
 
     // Parse sentences
     const sentenceList = book.content.match(/[^.!?]+[.!?]+/g) || []
@@ -121,47 +127,58 @@ export default function ReaderView({ book, onBack }) {
     setIsSpeaking(false)
   }
 
+  const heardRef = useRef('')
+
+  const stopListening = () => {
+    const recognition = recognitionRef.current
+    if (!recognition) return
+    try { recognition.stop() } catch { /* already stopped */ }
+  }
+
   const startListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
-      alert('😔 Konuşma tanıma bu cihazda desteklenmiyor.')
+      setListenError('Konuşma tanıma bu cihazda desteklenmiyor.')
       return
     }
 
     if (!navigator.onLine) {
-      alert('📡 Konuşma tanıma için internet bağlantısı gerekli.')
+      setListenError('Konuşma tanıma için internet bağlantısı gerekli.')
       return
     }
 
     stopSpeaking()
-
     if (recognitionRef.current) {
       try { recognitionRef.current.abort() } catch { /* already stopped */ }
     }
 
+    heardRef.current = ''
     const recognition = new SpeechRecognition()
     recognition.lang = 'en-US'
-    recognition.continuous = false
-    recognition.interimResults = false
+    recognition.continuous = true
+    recognition.interimResults = true
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript
-      setRecognizedText(transcript)
-      calculateAccuracy(sentenceRef.current, transcript)
+      let transcript = ''
+      for (let index = 0; index < event.results.length; index += 1) {
+        transcript += `${event.results[index][0].transcript} `
+      }
+      heardRef.current = transcript.trim()
+      setRecognizedText(heardRef.current)
     }
-    recognition.onend = () => setIsListening(false)
+    recognition.onend = () => {
+      setIsListening(false)
+      if (heardRef.current) calculateAccuracy(sentenceRef.current, heardRef.current)
+    }
     recognition.onerror = (event) => {
       setIsListening(false)
-      if (event.error === 'aborted') return
-      if (event.error === 'no-speech') {
-        alert('🎤 Ses algılanamadı. Lütfen tekrar dene.')
-      } else if (event.error === 'not-allowed') {
-        alert('🎤 Mikrofon izni gerekli.')
-      }
+      if (event.error === 'aborted' || event.error === 'no-speech') return
+      if (event.error === 'not-allowed') setListenError('Mikrofon izni gerekli.')
     }
 
     recognitionRef.current = recognition
     setRecognizedText('')
     setAccuracy(null)
+    setListenError('')
     setIsListening(true)
 
     try {
@@ -170,6 +187,12 @@ export default function ReaderView({ book, onBack }) {
       console.error('Recognition start error:', error)
       setIsListening(false)
     }
+  }
+
+  const chooseRate = (rate) => {
+    setSpeechRateChoice(rate)
+    setSpeechRate(rate)
+    updateSetting('ttsRate', rate)
   }
 
   const calculateAccuracy = (original, recognized) => {
@@ -343,18 +366,46 @@ export default function ReaderView({ book, onBack }) {
           {isSpeaking ? '⏸️ Durdur' : '🔊 Dinle'}
         </div>
         <div
-          onClick={startListening}
+          onPointerDown={(event) => {
+            event.preventDefault()
+            event.currentTarget.setPointerCapture(event.pointerId)
+            startListening()
+          }}
+          onPointerUp={(event) => {
+            event.preventDefault()
+            stopListening()
+          }}
+          onPointerCancel={stopListening}
+          onContextMenu={(event) => event.preventDefault()}
           className={`
-            py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center active:scale-95 transition-all
+            py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center transition-all
             ${isListening 
               ? 'bg-danger-500 animate-pulse' 
               : 'bg-success-500'
             }
           `}
-          style={{ touchAction: 'manipulation' }}
+          style={{ touchAction: 'none' }}
         >
-          {isListening ? '🎤 Dinleniyor...' : '🎤 Ben Söyleyeyim'}
+          {isListening ? '🎤 Dinliyorum...' : '🎤 Basılı tut'}
         </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          [0.75, 'Yavaş'],
+          [1, 'Normal'],
+          [1.25, 'Hızlı']
+        ].map(([rate, label]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => chooseRate(rate)}
+            className={`py-3 rounded-xl font-semibold ${
+              speechRate === rate ? 'bg-primary-500 text-white' : 'glass-card text-gray-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       {listenError && (
         <p className="text-center text-sm text-amber-300">{listenError}</p>

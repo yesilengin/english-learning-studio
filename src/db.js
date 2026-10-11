@@ -113,6 +113,8 @@ export async function addBook(title, content) {
   return await db.books.add(book);
 }
 
+export const LEVEL_DAYS = { 1: 1, 2: 3, 3: 7, 4: 14, 5: 30 }
+
 // Add a new word
 export async function addWord(word, translation, sentence, bookId, status = 'learning') {
   const wordData = {
@@ -122,12 +124,33 @@ export async function addWord(word, translation, sentence, bookId, status = 'lea
     bookId,
     dateAdded: new Date(),
     status, // 'learning', 'known', 'unknown'
+    level: 1,
     reviewCount: 0,
     easeFactor: 2.5,
     interval: 0,
     dueDate: new Date()
   };
   return await db.words.add(wordData);
+}
+
+export async function setWordLevel(wordId, level) {
+  const days = LEVEL_DAYS[level] || 1
+  await db.words.update(wordId, {
+    level,
+    interval: days,
+    dueDate: new Date(Date.now() + days * 24 * 60 * 60 * 1000),
+    status: 'learning'
+  })
+}
+
+export async function deleteWord(wordId) {
+  await db.words.delete(wordId)
+  await db.flashcards.where('wordId').equals(wordId).delete()
+}
+
+export async function getWordsByLevel(level) {
+  const words = await db.words.toArray()
+  return words.filter((word) => (word.level || 1) === level)
 }
 
 // Get words due for review today

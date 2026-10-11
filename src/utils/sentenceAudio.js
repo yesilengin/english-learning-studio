@@ -2,6 +2,12 @@
 // The phone's built-in speech engine is not used.
 
 let player = null
+let speechRate = 1
+
+export function setSpeechRate(rate) {
+  speechRate = rate
+  if (player) player.playbackRate = rate
+}
 
 function getPlayer() {
   if (!player) {
@@ -74,7 +80,7 @@ export function playSentence(text, { onWord, onEnd, onError } = {}) {
     audio.onerror = null
     audio.pause()
     audio.src = `/api/tts?text=${query}`
-    audio.playbackRate = 0.9
+    audio.playbackRate = speechRate
 
     audio.ontimeupdate = () => {
       const duration = audio.duration
