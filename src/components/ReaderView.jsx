@@ -282,31 +282,58 @@ export default function ReaderView({ book, onBack }) {
             const text = sentences[currentSentence];
             if (!text || !window.speechSynthesis) return;
             
+            // ALWAYS cancel first - clean slate
             window.speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(text);
-            u.lang = 'en-US';
-            u.rate = 0.9;
-            u.onstart = () => setIsSpeaking(true);
-            u.onend = () => setIsSpeaking(false);
-            window.speechSynthesis.speak(u);
+            
+            // Small delay to ensure cancel completes
+            setTimeout(() => {
+              const u = new SpeechSynthesisUtterance(text);
+              u.lang = 'en-US';
+              u.rate = 0.9;
+              u.onend = () => {
+                // Force cleanup
+                window.speechSynthesis.cancel();
+              };
+              window.speechSynthesis.speak(u);
+            }, 50);
           }}
-          className="btn-gradient py-4 text-lg cursor-pointer select-none text-center"
+          className="btn-gradient py-4 text-lg cursor-pointer select-none text-center active:scale-95 transition-transform"
           style={{ touchAction: 'manipulation' }}
         >
           🔊 Dinle
         </div>
         <div
           onClick={() => {
-            if (isListening || isSpeaking) return;
-            startListening();
+            if (!recognitionRef.current) {
+              alert('😔 Konuşma tanıma bu cihazda desteklenmiyor.');
+              return;
+            }
+
+            if (!navigator.onLine) {
+              alert('📡 Konuşma tanıma için internet bağlantısı gerekli.');
+              return;
+            }
+
+            // Cancel any speech first
+            window.speechSynthesis?.cancel();
+            
+            setRecognizedText('');
+            setAccuracy(null);
+            setIsListening(true);
+            
+            try {
+              recognitionRef.current.start();
+            } catch (error) {
+              console.error('Recognition start error:', error);
+              setIsListening(false);
+            }
           }}
           className={`
-            py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center
+            py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center active:scale-95 transition-all
             ${isListening 
               ? 'bg-danger-500 animate-pulse' 
               : 'bg-success-500'
             }
-            ${isSpeaking ? 'opacity-30' : ''}
           `}
           style={{ touchAction: 'manipulation' }}
         >
