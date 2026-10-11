@@ -17,8 +17,12 @@ export default function ReaderView({ book, onBack }) {
   const [liveTranslation, setLiveTranslation] = useState('')
   const [listenError, setListenError] = useState('')
   const [speechRate, setSpeechRateChoice] = useState(1)
+  const [autoReading, setAutoReading] = useState(false)
   
   const recognitionRef = useRef(null)
+  const autoReadRef = useRef(false)
+  const sentencesRef = useRef([])
+  const positionRef = useRef(0)
   const sentenceRef = useRef('')
   const readingTimerRef = useRef(null)
   const readingStartTime = useRef(Date.now())
@@ -54,6 +58,7 @@ export default function ReaderView({ book, onBack }) {
     }, 30000) // Update every 30 seconds
 
     return () => {
+      autoReadRef.current = false
       stopSpeech()
       stopSentenceAudio()
       
@@ -66,9 +71,11 @@ export default function ReaderView({ book, onBack }) {
 
       // Save reading position
       if (book?.id) {
-        const progress = sentences.length > 0 ? (currentSentence / sentences.length) * 100 : 0
+        const total = sentencesRef.current.length
+        const place = positionRef.current
+        const progress = total > 0 ? (place / total) * 100 : 0
         db.books.update(book.id, {
-          lastReadPosition: currentSentence,
+          lastReadPosition: place,
           progress: progress
         })
       }
@@ -303,6 +310,8 @@ export default function ReaderView({ book, onBack }) {
   }
 
   const nextSentence = () => {
+    autoReadRef.current = false
+    setAutoReading(false)
     if (currentSentence < sentences.length - 1) {
       setCurrentSentence(currentSentence + 1)
       setRecognizedText('')
@@ -312,12 +321,66 @@ export default function ReaderView({ book, onBack }) {
   }
 
   const prevSentence = () => {
+    autoReadRef.current = false
+    setAutoReading(false)
     if (currentSentence > 0) {
       setCurrentSentence(currentSentence - 1)
       setRecognizedText('')
       setAccuracy(null)
       stopSpeaking()
     }
+  }
+
+  const stopAutoRead = () => {
+    autoReadRef.current = false
+    setAutoReading(false)
+    stopSpeaking()
+  }
+
+  const playAutoAt = (index) => {
+    const text = sentencesRef.current[index]
+    if (!autoReadRef.current || !text) {
+      autoReadRef.current = false
+      setAutoReading(false)
+      setIsSpeaking(false)
+      return
+    }
+
+    setCurrentSentence(index)
+    setIsSpeaking(true)
+    setActiveWordIndex(0)
+    setListenError('')
+    playSentence(text, {
+      onWord: (wordIndex) => setActiveWordIndex(wordIndex),
+      onEnd: () => {
+        if (!autoReadRef.current) {
+          setIsSpeaking(false)
+          return
+        }
+        playAutoAt(index + 1)
+      },
+      onError: () => {
+        autoReadRef.current = false
+        setAutoReading(false)
+        setIsSpeaking(false)
+        setListenError('Ses hazırlanamadı. İnterneti açıp tekrar dene.')
+      }
+    })
+  }
+
+  const startAutoRead = () => {
+    if (autoReadRef.current) {
+      stopAutoRead()
+      return
+    }
+    if (holdingRef.current) {
+      try { recognitionRef.current?.stop() } catch { /* already closing */ }
+      holdingRef.current = false
+      setIsListening(false)
+    }
+    autoReadRef.current = true
+    setAutoReading(true)
+    playAutoAt(currentSentence)
   }
 
   if (!book || sentences.length === 0) {
@@ -328,6 +391,8 @@ export default function ReaderView({ book, onBack }) {
     )
   }
 
+  sentencesRef.current = sentences
+  positionRef.current = currentSentence
   const currentText = sentences[currentSentence] || ''
   sentenceRef.current = currentText
   const words = currentText.split(/\s+/).filter(Boolean)
@@ -389,10 +454,28 @@ export default function ReaderView({ book, onBack }) {
 
       {/* Controls */}
       <div className="grid grid-cols-2 gap-4">
+        <button
+          type="button"
+          onClick={startAutoRead}
+          className={`py-4 text-lg font-semibold rounded-xl ${
+            autoReading ? 'bg-primary-500 text-white' : 'btn-gradient'
+          }`}
+        >
+          {autoReading ? '📖 Okuyor...' : '▶️ Devamlı oku'}
+        </button>
+        <button
+          type="button"
+          onClick={stopAutoRead}
+          className="glass-card py-4 text-lg font-semibold"
+        >
+          ⏹️ Durdur
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
         <div
           onClick={() => {
-            if (isSpeaking) {
-              stopSpeaking()
+            if (isSpeaking || autoReadRef.current) {
+              stopAutoRead()
               return
             }
             const text = sentences[currentSentence]

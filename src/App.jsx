@@ -94,7 +94,7 @@ function App() {
           </div>
           <p className="text-gray-400 text-sm">
             Her gün biraz İngilizce ile hayallerine yaklaş ✨
-            <span className="ml-2 text-xs text-gray-500">2.9</span>
+            <span className="ml-2 text-xs text-gray-500">3.0</span>
           </p>
         </header>
 
