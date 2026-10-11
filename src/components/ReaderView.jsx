@@ -133,12 +133,12 @@ export default function ReaderView({ book, onBack }) {
   const stopListening = () => {
     if (!holdingRef.current) return
     holdingRef.current = false
-    try {
-      recognitionRef.current?.stop()
-    } catch {
-      setIsListening(false)
-      if (heardRef.current) calculateAccuracy(sentenceRef.current, heardRef.current)
-    }
+    const spoken = heardRef.current
+    try { recognitionRef.current?.abort() } catch { /* already closed */ }
+    recognitionRef.current = null
+    setIsListening(false)
+    setRecognizedText(spoken)
+    if (spoken) calculateAccuracy(sentenceRef.current, spoken)
   }
 
   const openRecognition = () => {
@@ -152,6 +152,7 @@ export default function ReaderView({ book, onBack }) {
     recognition.interimResults = true
     recognition.maxAlternatives = 1
     recognition.onresult = (event) => {
+      if (!holdingRef.current) return
       const last = event.results[event.results.length - 1]
       const transcript = last?.[0]?.transcript?.trim()
       if (!transcript) return
@@ -167,12 +168,8 @@ export default function ReaderView({ book, onBack }) {
     }
     recognition.onend = () => {
       if (holdingRef.current && !heardRef.current) {
-        window.setTimeout(openRecognition, 150)
-        return
+        window.setTimeout(openRecognition, 80)
       }
-      if (holdingRef.current) return
-      setIsListening(false)
-      if (heardRef.current) calculateAccuracy(sentenceRef.current, heardRef.current)
     }
 
     recognitionRef.current = recognition
@@ -387,6 +384,7 @@ export default function ReaderView({ book, onBack }) {
             startListening()
           }}
           onPointerUp={stopListening}
+          onTouchEnd={stopListening}
           onContextMenu={(event) => event.preventDefault()}
           className={`
             py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center
