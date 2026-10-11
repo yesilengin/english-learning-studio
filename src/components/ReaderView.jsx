@@ -128,31 +128,24 @@ export default function ReaderView({ book, onBack }) {
   }
 
   const heardRef = useRef('')
+  const holdingRef = useRef(false)
 
   const stopListening = () => {
-    const recognition = recognitionRef.current
-    if (!recognition) return
-    try { recognition.stop() } catch { /* already stopped */ }
+    if (!holdingRef.current) return
+    holdingRef.current = false
+    try {
+      recognitionRef.current?.stop()
+    } catch {
+      setIsListening(false)
+      if (heardRef.current) calculateAccuracy(sentenceRef.current, heardRef.current)
+    }
   }
 
-  const startListening = () => {
+  const openRecognition = () => {
+    if (!holdingRef.current) return
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      setListenError('Konuşma tanıma bu cihazda desteklenmiyor.')
-      return
-    }
+    if (!SpeechRecognition) return
 
-    if (!navigator.onLine) {
-      setListenError('Konuşma tanıma için internet bağlantısı gerekli.')
-      return
-    }
-
-    stopSpeaking()
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort() } catch { /* already stopped */ }
-    }
-
-    heardRef.current = ''
     const recognition = new SpeechRecognition()
     recognition.lang = 'en-US'
     recognition.continuous = true
@@ -165,28 +158,50 @@ export default function ReaderView({ book, onBack }) {
       heardRef.current = transcript.trim()
       setRecognizedText(heardRef.current)
     }
+    recognition.onerror = (event) => {
+      if (event.error === 'not-allowed') {
+        holdingRef.current = false
+        setIsListening(false)
+        setListenError('Mikrofon izni gerekli.')
+      }
+    }
     recognition.onend = () => {
+      if (holdingRef.current) {
+        window.setTimeout(openRecognition, 120)
+        return
+      }
       setIsListening(false)
       if (heardRef.current) calculateAccuracy(sentenceRef.current, heardRef.current)
     }
-    recognition.onerror = (event) => {
-      setIsListening(false)
-      if (event.error === 'aborted' || event.error === 'no-speech') return
-      if (event.error === 'not-allowed') setListenError('Mikrofon izni gerekli.')
-    }
 
     recognitionRef.current = recognition
+    try {
+      recognition.start()
+    } catch {
+      window.setTimeout(openRecognition, 200)
+    }
+  }
+
+  const startListening = () => {
+    if (holdingRef.current) return
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setListenError('Konuşma tanıma bu cihazda desteklenmiyor.')
+      return
+    }
+    if (!navigator.onLine) {
+      setListenError('Konuşma tanıma için internet bağlantısı gerekli.')
+      return
+    }
+
+    stopSpeaking()
+    holdingRef.current = true
+    heardRef.current = ''
     setRecognizedText('')
     setAccuracy(null)
     setListenError('')
     setIsListening(true)
-
-    try {
-      recognition.start()
-    } catch (error) {
-      console.error('Recognition start error:', error)
-      setIsListening(false)
-    }
+    openRecognition()
   }
 
   const chooseRate = (rate) => {
@@ -367,22 +382,14 @@ export default function ReaderView({ book, onBack }) {
         </div>
         <div
           onPointerDown={(event) => {
-            event.preventDefault()
-            event.currentTarget.setPointerCapture(event.pointerId)
+            event.currentTarget.setPointerCapture?.(event.pointerId)
             startListening()
           }}
-          onPointerUp={(event) => {
-            event.preventDefault()
-            stopListening()
-          }}
-          onPointerCancel={stopListening}
+          onPointerUp={stopListening}
           onContextMenu={(event) => event.preventDefault()}
           className={`
-            py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center transition-all
-            ${isListening 
-              ? 'bg-danger-500 animate-pulse' 
-              : 'bg-success-500'
-            }
+            py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center
+            ${isListening ? 'bg-danger-500' : 'bg-success-500'}
           `}
           style={{ touchAction: 'none' }}
         >
