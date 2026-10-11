@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { db, addWord, updateTodayStats, getSetting, updateSetting } from '../db'
 import { getTranslation, lookupFast } from '../utils/dictionary'
 import { initVoices, speakEnglish, stopSpeech } from '../utils/speech'
-import { playSentence, stopSentenceAudio, setSpeechRate } from '../utils/sentenceAudio'
+import { playSentence, stopSentenceAudio, setSpeechRate, setAudioRoute } from '../utils/sentenceAudio'
+import { cleanHeard } from '../utils/heardText'
 
 export default function ReaderView({ book, onBack }) {
   const [sentences, setSentences] = useState([])
@@ -152,6 +153,7 @@ export default function ReaderView({ book, onBack }) {
     const recognition = recognitionRef.current
     recognitionRef.current = null
     setIsListening(false)
+    setAudioRoute('playback')
     try { recognition?.abort() } catch { /* mic already closed */ }
     if (spoken) {
       setRecognizedText(spoken)
@@ -185,6 +187,7 @@ export default function ReaderView({ book, onBack }) {
     }
 
     stopSpeaking()
+    setAudioRoute('play-and-record')
     holdingRef.current = true
     heardRef.current = ''
     setRecognizedText('')
@@ -194,16 +197,13 @@ export default function ReaderView({ book, onBack }) {
 
     const recognition = new SpeechRecognition()
     recognition.lang = 'en-US'
-    recognition.continuous = true
+    recognition.continuous = false
     recognition.interimResults = true
     recognition.maxAlternatives = 1
     recognition.onresult = (event) => {
       if (!holdingRef.current) return
-      const spoken = Array.from(event.results)
-        .map((result) => result[0]?.transcript?.trim())
-        .filter(Boolean)
-        .join(' ')
-      if (!spoken) return
+      const spoken = cleanHeard(event.results)
+      if (!spoken || spoken === heardRef.current) return
       heardRef.current = spoken
       setRecognizedText(spoken)
       clearTimeout(noSpeechTimerRef.current)

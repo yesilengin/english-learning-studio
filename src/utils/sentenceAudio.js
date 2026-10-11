@@ -1,21 +1,86 @@
-// Real audio files, played like music.
-// The phone's built-in speech engine is not used.
+// One playback path for every spoken sentence.
+// Each recording is leveled to the same loudness before it plays.
 
-let player = null
 let speechRate = 1
+let playToken = 0
+let audioCtx = null
+let active = null
+
+export function setAudioRoute(mode) {
+  const session = typeof navigator !== 'undefined' ? navigator.audioSession : null
+  if (!session) return
+  try {
+    session.type = mode
+  } catch {
+    // The browser chooses the route itself.
+  }
+}
 
 export function setSpeechRate(rate) {
   speechRate = rate
-  if (player) player.playbackRate = rate
+  if (active?.source) {
+    try {
+      active.source.playbackRate.value = rate
+    } catch {
+      // The clip already ended.
+    }
+  }
 }
 
-function getPlayer() {
-  if (!player) {
-    player = new Audio()
-    player.preload = 'auto'
-    player.setAttribute('playsinline', 'true')
+function getContext() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext
+  if (!AudioCtx) return null
+  if (!audioCtx) audioCtx = new AudioCtx()
+  return audioCtx
+}
+
+function haltPlayback() {
+  const current = active
+  active = null
+  if (!current) return
+  if (current.frame) cancelAnimationFrame(current.frame)
+  try {
+    current.source.stop(0)
+  } catch {
+    // Already stopped.
   }
-  return player
+}
+
+export function stopSentenceAudio() {
+  playToken += 1
+  haltPlayback()
+}
+
+function normalizeBuffer(buffer) {
+  const channels = []
+  let sum = 0
+  let count = 0
+  let peak = 0
+
+  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+    const data = buffer.getChannelData(channel)
+    channels.push(data)
+    for (let index = 0; index < data.length; index += 1) {
+      const value = data[index]
+      const abs = value < 0 ? -value : value
+      if (abs > peak) peak = abs
+      sum += value * value
+      count += 1
+    }
+  }
+
+  if (!count || peak < 0.001) return
+  const rms = Math.sqrt(sum / count)
+  if (rms < 0.001) return
+
+  let gain = 0.16 / rms
+  if (peak * gain > 0.95) gain = 0.95 / peak
+  if (gain > 4) gain = 4
+  if (Math.abs(gain - 1) < 0.04) return
+
+  for (const data of channels) {
+    for (let index = 0; index < data.length; index += 1) data[index] *= gain
+  }
 }
 
 function partsOf(text) {
@@ -40,67 +105,108 @@ function partsOf(text) {
   return parts
 }
 
-export function stopSentenceAudio() {
-  if (!player) return
-  player.onended = null
-  player.ontimeupdate = null
-  player.onerror = null
-  player.pause()
-  player.removeAttribute('src')
-  try {
-    player.load()
-  } catch {
-    // Ignore a player that has no source.
-  }
+async function loadBuffer(ctx, text) {
+  const response = await fetch(`/api/tts?text=${encodeURIComponent(text)}`)
+  if (!response.ok) throw new Error('tts')
+  const bytes = await response.arrayBuffer()
+  return ctx.decodeAudioData(bytes.slice(0))
 }
 
-export function playSentence(text, { onWord, onEnd, onError } = {}) {
+function playBuffer(ctx, buffer, words, wordOffset, token, rate, onWord) {
+  return new Promise((resolve) => {
+    if (token !== playToken) {
+      resolve()
+      return
+    }
+
+    const source = ctx.createBufferSource()
+    const gain = ctx.createGain()
+    gain.gain.value = 1
+    source.buffer = buffer
+    source.playbackRate.value = rate
+    source.connect(gain)
+    gain.connect(ctx.destination)
+
+    const startedAt = ctx.currentTime
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      if (active?.source === source) {
+        if (active.frame) cancelAnimationFrame(active.frame)
+        active = null
+      }
+      resolve()
+    }
+
+    source.onended = finish
+    active = { source, frame: 0 }
+
+    const tick = () => {
+      if (!active || active.source !== source || token !== playToken) {
+        finish()
+        return
+      }
+      const elapsed = (ctx.currentTime - startedAt) * (source.playbackRate.value || 1)
+      const duration = buffer.duration
+      if (duration > 0 && words.length) {
+        const local = Math.min(words.length - 1, Math.floor((elapsed / duration) * words.length))
+        onWord?.(wordOffset + local)
+      }
+      active.frame = requestAnimationFrame(tick)
+    }
+
+    source.start(0)
+    active.frame = requestAnimationFrame(tick)
+  })
+}
+
+export function playSentence(text, { onWord, onEnd, onError, rate } = {}) {
   const parts = partsOf(text)
   if (parts.length === 0) {
     onError?.()
     return
   }
 
-  const audio = getPlayer()
-  let partIndex = 0
-  let wordOffset = 0
-  let failed = false
+  const myToken = ++playToken
+  haltPlayback()
+  setAudioRoute('playback')
 
-  const fail = () => {
-    if (failed) return
-    failed = true
+  const ctx = getContext()
+  if (!ctx) {
     onError?.()
+    return
   }
 
-  const playPart = () => {
-    const words = parts[partIndex]
-    const query = encodeURIComponent(words.join(' '))
-    audio.onended = null
-    audio.ontimeupdate = null
-    audio.onerror = null
-    audio.pause()
-    audio.src = `/api/tts?text=${query}`
-    audio.playbackRate = speechRate
+  const pending = ctx.resume()
+  const playbackRate = rate || speechRate
 
-    audio.ontimeupdate = () => {
-      const duration = audio.duration
-      if (!duration || !Number.isFinite(duration) || !words.length) return
-      const local = Math.min(words.length - 1, Math.floor((audio.currentTime / duration) * words.length))
-      onWord?.(wordOffset + local)
+  const run = async () => {
+    try {
+      await pending
+    } catch {
+      if (myToken === playToken) onError?.()
+      return
     }
 
-    audio.onended = () => {
+    let wordOffset = 0
+    for (const words of parts) {
+      if (myToken !== playToken) return
+      let buffer
+      try {
+        buffer = await loadBuffer(ctx, words.join(' '))
+      } catch {
+        if (myToken === playToken) onError?.()
+        return
+      }
+      if (myToken !== playToken) return
+      normalizeBuffer(buffer)
+      await playBuffer(ctx, buffer, words, wordOffset, myToken, playbackRate, onWord)
       wordOffset += words.length
-      partIndex += 1
-      if (partIndex < parts.length) playPart()
-      else onEnd?.()
     }
 
-    audio.onerror = () => fail()
-
-    const started = audio.play()
-    if (started?.catch) started.catch(() => fail())
+    if (myToken === playToken) onEnd?.()
   }
 
-  playPart()
+  run()
 }
