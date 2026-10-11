@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { db, getDueWords } from '../db'
 import { syncBooks } from '../utils/librarySync'
+import { buildPages, pageNumberFor } from '../utils/pages'
 
 export default function TodayView({ onBookSelect, onOpenLibrary, stats }) {
   const [recentBook, setRecentBook] = useState(null)
@@ -15,10 +16,15 @@ export default function TodayView({ onBookSelect, onOpenLibrary, stats }) {
     try {
       // Get most recently read book
       await syncBooks()
-      const books = await db.books.orderBy('uploadDate').reverse().limit(1).toArray()
-      if (books.length > 0) {
-        setRecentBook(books[0])
-      }
+      const books = await db.books.toArray()
+      const recent = [...books].sort((a, b) => {
+        const read = (b.lastReadAt || 0) - (a.lastReadAt || 0)
+        if (read) return read
+        const progress = (b.progress || 0) - (a.progress || 0)
+        if (progress) return progress
+        return new Date(b.uploadDate || 0) - new Date(a.uploadDate || 0)
+      })[0]
+      if (recent) setRecentBook(recent)
 
       // Get due cards for today
       const words = await getDueWords(5)
@@ -65,6 +71,7 @@ export default function TodayView({ onBookSelect, onOpenLibrary, stats }) {
             <div>
               <h3 className="text-lg font-semibold mb-1">📚 Kaldığın Yer</h3>
               <p className="text-gray-400 text-sm">{recentBook.title}</p>
+              <p className="text-primary-300 text-sm mt-1">{pageLabel(recentBook)}</p>
             </div>
             <button
               onClick={() => onBookSelect(recentBook)}
@@ -154,6 +161,15 @@ export default function TodayView({ onBookSelect, onOpenLibrary, stats }) {
       </div>
     </div>
   )
+}
+
+function pageLabel(book) {
+  const list = String(book?.content || '').match(/[^.!?]+[.!?]+/g) || []
+  const sentences = list.map((sentence) => sentence.trim()).filter(Boolean)
+  if (!sentences.length) return 'Sayfa 1'
+  const pages = buildPages(sentences)
+  const page = pageNumberFor(pages, Number(book.lastReadPosition) || 0) + 1
+  return `Sayfa ${page} / ${pages.length}`
 }
 
 function StatCard({ icon, label, value, color }) {

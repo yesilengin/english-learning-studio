@@ -1576,3 +1576,42 @@ export async function getTranslation(word, sentence = '') {
     example: sentence
   };
 }
+
+const sentenceCache = new Map()
+
+export async function translateSentence(text) {
+  const sentence = String(text || '').replace(/\s+/g, ' ').trim()
+  if (!sentence) return ''
+  const key = `sentence:${sentence.toLowerCase()}`
+
+  if (sentenceCache.has(key)) return sentenceCache.get(key)
+
+  try {
+    const saved = await db.translationCache.get(key)
+    if (saved?.translation) {
+      sentenceCache.set(key, saved.translation)
+      return saved.translation
+    }
+  } catch {
+    // The store appears after the database upgrade.
+  }
+
+  if (!navigator.onLine) return ''
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 8000)
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(sentence.slice(0, 450))}&langpair=en|tr`
+    const response = await fetch(url, { signal: controller.signal })
+    clearTimeout(timeoutId)
+    if (!response.ok) return ''
+    const data = await response.json()
+    const translation = String(data?.responseData?.translatedText || '').trim()
+    if (!translation || /MYMEMORY WARNING|QUERY LENGTH/i.test(translation)) return ''
+    sentenceCache.set(key, translation)
+    db.translationCache.put({ word: key, translation, savedAt: Date.now() }).catch(() => {})
+    return translation
+  } catch {
+    return ''
+  }
+}

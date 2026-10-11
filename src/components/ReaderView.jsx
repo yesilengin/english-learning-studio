@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { db, addWord, updateTodayStats, getSetting, updateSetting } from '../db'
-import { getTranslation, lookupFast } from '../utils/dictionary'
+import { getTranslation, translateSentence } from '../utils/dictionary'
+import { buildPages, pageNumberFor } from '../utils/pages'
 import { initVoices, speakEnglish, stopSpeech } from '../utils/speech'
 import { playSentence, stopSentenceAudio, setSpeechRate, setAudioRoute } from '../utils/sentenceAudio'
 import { cleanHeard } from '../utils/heardText'
@@ -14,7 +15,7 @@ export default function ReaderView({ book, onBack }) {
   const [recognizedText, setRecognizedText] = useState('')
   const [accuracy, setAccuracy] = useState(null)
   const [activeWordIndex, setActiveWordIndex] = useState(-1)
-  const [liveTranslation, setLiveTranslation] = useState('')
+  const [sentenceTurkish, setSentenceTurkish] = useState({})
   const [listenError, setListenError] = useState('')
   const [speechRate, setSpeechRateChoice] = useState(1)
   const [autoReading, setAutoReading] = useState(false)
@@ -23,6 +24,7 @@ export default function ReaderView({ book, onBack }) {
   const autoReadRef = useRef(false)
   const sentencesRef = useRef([])
   const positionRef = useRef(0)
+  const readyRef = useRef(false)
   const sentenceRef = useRef('')
   const readingTimerRef = useRef(null)
   const readingStartTime = useRef(Date.now())
@@ -43,12 +45,26 @@ export default function ReaderView({ book, onBack }) {
       setSpeechRate(rate)
     })
 
-    // Parse sentences
-    const sentenceList = book.content.match(/[^.!?]+[.!?]+/g) || []
-    setSentences(sentenceList.map(s => s.trim()))
-    
-    // Set current position
-    setCurrentSentence(book.lastReadPosition || 0)
+    readyRef.current = false
+    let cancel = false
+    const openBook = async () => {
+      let source = book
+      if (book.id) {
+        const fresh = await db.books.get(book.id)
+        if (fresh?.content) source = fresh
+      }
+      if (cancel) return
+      const sentenceList = String(source.content || '').match(/[^.!?]+[.!?]+/g) || []
+      const list = sentenceList.map((sentence) => sentence.trim()).filter(Boolean)
+      const saved = Number(source.lastReadPosition) || 0
+      const place = list.length ? Math.min(Math.max(0, saved), list.length - 1) : 0
+      positionRef.current = place
+      setSentences(list)
+      setCurrentSentence(place)
+      setSentenceTurkish({})
+      readyRef.current = true
+    }
+    openBook()
 
     // Start reading timer
     readingStartTime.current = Date.now()
@@ -76,7 +92,8 @@ export default function ReaderView({ book, onBack }) {
         const progress = total > 0 ? (place / total) * 100 : 0
         db.books.update(book.id, {
           lastReadPosition: place,
-          progress: progress
+          progress: progress,
+          lastReadAt: Date.now()
         })
       }
 
@@ -88,32 +105,41 @@ export default function ReaderView({ book, onBack }) {
       // Update final reading time
       const totalElapsed = Math.floor((Date.now() - readingStartTime.current) / 1000)
       updateTodayStats({ readingTime: totalElapsed })
+      cancel = true
     }
   }, [book])
 
   useEffect(() => {
-    const text = sentences[currentSentence] || ''
-    const raw = text.split(/\s+/).filter(Boolean)[activeWordIndex]
-    if (!raw) {
-      setLiveTranslation('')
-      return
-    }
+    if (!readyRef.current || !book?.id || sentences.length === 0) return
+    positionRef.current = currentSentence
+    db.books.update(book.id, {
+      lastReadPosition: currentSentence,
+      progress: (currentSentence / sentences.length) * 100,
+      lastReadAt: Date.now()
+    }).catch(() => {})
+  }, [currentSentence, sentences.length, book?.id])
 
-    const fast = lookupFast(raw)
-    if (fast) {
-      setLiveTranslation(fast)
-      return
+  useEffect(() => {
+    const savePlace = () => {
+      if (!readyRef.current || !book?.id) return
+      const total = sentencesRef.current.length
+      const place = positionRef.current
+      db.books.update(book.id, {
+        lastReadPosition: place,
+        progress: total ? (place / total) * 100 : 0,
+        lastReadAt: Date.now()
+      }).catch(() => {})
     }
-
-    let cancel = false
-    setLiveTranslation('...')
-    getTranslation(raw, text).then((result) => {
-      if (!cancel) setLiveTranslation(result.translation || '—')
-    })
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') savePlace()
+    }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', savePlace)
     return () => {
-      cancel = true
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', savePlace)
     }
-  }, [activeWordIndex, currentSentence, sentences])
+  }, [book?.id])
 
   const speakSentence = (sentenceIndex = currentSentence) => {
     const text = sentences[sentenceIndex]
@@ -309,26 +335,20 @@ export default function ReaderView({ book, onBack }) {
     }
   }
 
-  const nextSentence = () => {
-    autoReadRef.current = false
-    setAutoReading(false)
-    if (currentSentence < sentences.length - 1) {
-      setCurrentSentence(currentSentence + 1)
-      setRecognizedText('')
-      setAccuracy(null)
-      stopSpeaking()
-    }
-  }
+  const pages = useMemo(() => buildPages(sentences), [sentences])
+  const pageIndex = sentences.length ? pageNumberFor(pages, currentSentence) : 0
+  const pageSentences = pages[pageIndex] || []
 
-  const prevSentence = () => {
+  const showPage = (nextPage) => {
+    const target = pages[nextPage]?.[0]
+    if (target === undefined) return
     autoReadRef.current = false
     setAutoReading(false)
-    if (currentSentence > 0) {
-      setCurrentSentence(currentSentence - 1)
-      setRecognizedText('')
-      setAccuracy(null)
-      stopSpeaking()
-    }
+    setCurrentSentence(target)
+    setActiveWordIndex(-1)
+    setRecognizedText('')
+    setAccuracy(null)
+    stopSpeaking()
   }
 
   const stopAutoRead = () => {
@@ -383,6 +403,32 @@ export default function ReaderView({ book, onBack }) {
     playAutoAt(currentSentence)
   }
 
+  useEffect(() => {
+    if (!sentences.length || !pageSentences.length) return
+    let cancel = false
+    pageSentences.forEach((index) => {
+      const text = sentences[index]
+      if (!text) return
+      translateSentence(text).then((translation) => {
+        if (cancel) return
+        const line = translation || 'Çeviri hazır değil'
+        setSentenceTurkish((prev) => (
+          prev[index] === line ? prev : { ...prev, [index]: line }
+        ))
+      })
+    })
+    return () => {
+      cancel = true
+    }
+  }, [pageIndex, sentences])
+
+  useEffect(() => {
+    document.getElementById(`read-sentence-${currentSentence}`)?.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth'
+    })
+  }, [currentSentence])
+
   if (!book || sentences.length === 0) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -395,7 +441,6 @@ export default function ReaderView({ book, onBack }) {
   positionRef.current = currentSentence
   const currentText = sentences[currentSentence] || ''
   sentenceRef.current = currentText
-  const words = currentText.split(/\s+/).filter(Boolean)
   const progress = ((currentSentence + 1) / sentences.length) * 100
 
   return (
@@ -411,6 +456,8 @@ export default function ReaderView({ book, onBack }) {
         <div className="flex-1">
           <h2 className="text-xl font-bold truncate">{book.title}</h2>
           <p className="text-sm text-gray-400">
+            Sayfa {pageIndex + 1} / {Math.max(pages.length, 1)}
+            <span className="mx-2">·</span>
             {currentSentence + 1} / {sentences.length} cümle
           </p>
         </div>
@@ -427,29 +474,36 @@ export default function ReaderView({ book, onBack }) {
       </div>
 
       {/* Main Reading Area */}
-      <div className="glass-card p-8 min-h-[300px] flex flex-col items-center justify-center gap-6">
-        <p className="text-2xl leading-relaxed text-center select-none">
-          {words.map((word, idx) => (
-            <span
-              key={idx}
-              onClick={() => handleWordClick(word.replace(/[^\w]/g, ''), currentText)}
-              className={`
-                cursor-pointer px-1 rounded transition-colors
-                ${idx === activeWordIndex
-                  ? 'bg-amber-400/40 text-amber-100'
-                  : 'hover:bg-primary-500/30'}
-              `}
+      <div className="glass-card p-5 sm:p-8 space-y-6">
+        {pageSentences.map((index) => {
+          const text = sentences[index] || ''
+          const sentenceWords = text.split(/\s+/).filter(Boolean)
+          const active = index === currentSentence
+          return (
+            <div
+              key={index}
+              id={`read-sentence-${index}`}
+              className={`rounded-2xl px-3 py-3 ${active ? 'bg-white/10' : ''}`}
             >
-              {word}{' '}
-            </span>
-          ))}
-        </p>
-        {activeWordIndex >= 0 && (
-          <div className="text-center">
-            <p className="text-sm text-gray-400">{words[activeWordIndex]}</p>
-            <p className="text-3xl font-bold text-amber-300">{liveTranslation || '...'}</p>
-          </div>
-        )}
+              <p className={`text-xl leading-relaxed select-none ${active ? 'text-white' : 'text-gray-300'}`}>
+                {sentenceWords.map((word, wordIndex) => (
+                  <span
+                    key={wordIndex}
+                    onClick={() => handleWordClick(word.replace(/[^\w]/g, ''), text)}
+                    className={`cursor-pointer px-0.5 rounded ${
+                      active && wordIndex === activeWordIndex ? 'bg-amber-400/40 text-amber-100' : ''
+                    }`}
+                  >
+                    {word}{' '}
+                  </span>
+                ))}
+              </p>
+              <p className={`mt-2 text-base leading-relaxed ${active ? 'text-amber-200' : 'text-amber-200/70'}`}>
+                {sentenceTurkish[index] || '...'}
+              </p>
+            </div>
+          )
+        })}
       </div>
 
       {/* Controls */}
@@ -564,18 +618,18 @@ export default function ReaderView({ book, onBack }) {
       {/* Navigation */}
       <div className="flex items-center justify-between">
         <button
-          onClick={prevSentence}
-          disabled={currentSentence === 0}
+          onClick={() => showPage(pageIndex - 1)}
+          disabled={pageIndex === 0}
           className="glass-card px-6 py-3 disabled:opacity-30 hover:bg-white/20 transition-colors ripple"
         >
-          ← Önceki
+          ← Önceki sayfa
         </button>
         <button
-          onClick={nextSentence}
-          disabled={currentSentence === sentences.length - 1}
+          onClick={() => showPage(pageIndex + 1)}
+          disabled={pageIndex >= pages.length - 1}
           className="glass-card px-6 py-3 disabled:opacity-30 hover:bg-white/20 transition-colors ripple"
         >
-          Sonraki →
+          Sonraki sayfa →
         </button>
       </div>
 

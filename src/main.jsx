@@ -4,7 +4,7 @@ import App from './App.jsx'
 import './index.css'
 import { initializeDatabase } from './db.js'
 
-const APP_VERSION = '3.0.0'
+const APP_VERSION = '3.1.0'
 
 async function clearOldApp() {
   if (localStorage.getItem('app_version') === APP_VERSION) return
