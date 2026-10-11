@@ -329,11 +329,7 @@ export default function ReaderView({ book, onBack }) {
             setIsSpeaking(true)
             setActiveWordIndex(0)
             playSentence(text, {
-              onTime: (ratio) => {
-                const parts = text.split(/\s+/).filter(Boolean)
-                if (!parts.length) return
-                setActiveWordIndex(Math.min(parts.length - 1, Math.floor(ratio * parts.length)))
-              },
+              onWord: (index) => setActiveWordIndex(index),
               onEnd: () => setIsSpeaking(false),
               onError: () => {
                 setIsSpeaking(false)
