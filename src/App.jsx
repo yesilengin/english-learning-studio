@@ -61,8 +61,8 @@ function App() {
       <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 -z-10" />
       
       {/* Animated Background Orbs */}
-      <div className="fixed top-20 left-10 w-72 h-72 bg-primary-500/10 rounded-full blur-3xl floating" />
-      <div className="fixed bottom-20 right-10 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl floating" style={{ animationDelay: '1s' }} />
+      <div className="fixed top-20 left-10 w-72 h-72 bg-primary-500/10 rounded-full blur-3xl floating pointer-events-none" />
+      <div className="fixed bottom-20 right-10 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl floating pointer-events-none" style={{ animationDelay: '1s' }} />
       
       {/* Online/Offline Indicator */}
       {!isOnline && (
@@ -75,7 +75,7 @@ function App() {
       )}
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 pb-24 pt-6 max-w-6xl">
+      <div className="container relative z-10 mx-auto px-4 pb-24 pt-6 max-w-6xl">
         {/* Header */}
         <header className="mb-8 animate-fade-in">
           <div className="flex items-center justify-between mb-2">
@@ -94,6 +94,7 @@ function App() {
           </div>
           <p className="text-gray-400 text-sm">
             Her gün biraz İngilizce ile hayallerine yaklaş ✨
+            <span className="ml-2 text-xs text-gray-500">2.1</span>
           </p>
         </header>
 

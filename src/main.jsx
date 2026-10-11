@@ -4,30 +4,31 @@ import App from './App.jsx'
 import './index.css'
 import { initializeDatabase } from './db.js'
 
-// App version - force reload if changed
-const APP_VERSION = '2.0.1'
-const STORED_VERSION = localStorage.getItem('app_version')
+const APP_VERSION = '2.1.0'
 
-if (STORED_VERSION !== APP_VERSION) {
-  console.log('New version detected, clearing cache...')
+async function clearOldApp() {
+  if (localStorage.getItem('app_version') === APP_VERSION) return
   localStorage.setItem('app_version', APP_VERSION)
-  
-  // Clear service worker cache
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(registrations => {
-      registrations.forEach(registration => registration.unregister())
-    })
-    caches.keys().then(names => {
-      names.forEach(name => caches.delete(name))
-    })
+    const registrations = await navigator.serviceWorker.getRegistrations()
+    await Promise.all(registrations.map((registration) => registration.unregister()))
   }
-  
-  // Force reload without cache
-  window.location.reload(true)
+  if (window.caches) {
+    const names = await caches.keys()
+    await Promise.all(names.map((name) => caches.delete(name)))
+  }
+  const next = new URL(location.href)
+  if (next.searchParams.get('v') !== APP_VERSION) {
+    next.searchParams.set('v', APP_VERSION)
+    location.replace(next.toString())
+    return true
+  }
+  return false
 }
 
-// Initialize database before rendering
-initializeDatabase().then(() => {
+clearOldApp().then(async (left) => {
+  if (left) return
+  await initializeDatabase()
   ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
       <App />

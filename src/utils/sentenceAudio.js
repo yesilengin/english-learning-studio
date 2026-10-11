@@ -73,7 +73,7 @@ export function playSentence(text, { onWord, onEnd, onError } = {}) {
     audio.ontimeupdate = null
     audio.onerror = null
     audio.pause()
-    audio.src = `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=en&q=${query}`
+    audio.src = `/api/tts?text=${query}`
     audio.playbackRate = 0.9
 
     audio.ontimeupdate = () => {
