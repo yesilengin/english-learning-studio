@@ -41,7 +41,7 @@ function App() {
   const renderView = () => {
     switch (currentView) {
       case 'today':
-        return <TodayView onBookSelect={handleBookSelect} stats={stats} />
+        return <TodayView onBookSelect={handleBookSelect} onOpenLibrary={() => setCurrentView('library')} stats={stats} />
       case 'library':
         return <LibraryView onBookSelect={handleBookSelect} />
       case 'reader':
@@ -51,7 +51,7 @@ function App() {
       case 'stats':
         return <StatsView stats={stats} />
       default:
-        return <TodayView onBookSelect={handleBookSelect} stats={stats} />
+        return <TodayView onBookSelect={handleBookSelect} onOpenLibrary={() => setCurrentView('library')} stats={stats} />
     }
   }
 
@@ -94,7 +94,7 @@ function App() {
           </div>
           <p className="text-gray-400 text-sm">
             Her gün biraz İngilizce ile hayallerine yaklaş ✨
-            <span className="ml-2 text-xs text-gray-500">2.8</span>
+            <span className="ml-2 text-xs text-gray-500">2.9</span>
           </p>
         </header>
 

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { db, getDueWords } from '../db'
+import { syncBooks } from '../utils/librarySync'
 
-export default function TodayView({ onBookSelect, stats }) {
+export default function TodayView({ onBookSelect, onOpenLibrary, stats }) {
   const [recentBook, setRecentBook] = useState(null)
   const [dueCards, setDueCards] = useState([])
   const [loading, setLoading] = useState(true)
@@ -13,6 +14,7 @@ export default function TodayView({ onBookSelect, stats }) {
   const loadTodayData = async () => {
     try {
       // Get most recently read book
+      await syncBooks()
       const books = await db.books.orderBy('uploadDate').reverse().limit(1).toArray()
       if (books.length > 0) {
         setRecentBook(books[0])
@@ -133,6 +135,7 @@ export default function TodayView({ onBookSelect, stats }) {
           title="Kitaplık"
           description="Yeni kitap yükle"
           color="from-blue-500 to-cyan-500"
+          onClick={onOpenLibrary}
         />
         <QuickActionCard
           icon="🎯"
@@ -169,12 +172,16 @@ function StatCard({ icon, label, value, color }) {
   )
 }
 
-function QuickActionCard({ icon, title, description, color }) {
+function QuickActionCard({ icon, title, description, color, onClick }) {
   return (
-    <div className={`bg-gradient-to-br ${color} p-6 rounded-2xl shadow-lg hover:shadow-glow transition-all duration-300 hover:scale-105 cursor-pointer ripple`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`bg-gradient-to-br ${color} p-6 rounded-2xl shadow-lg hover:shadow-glow transition-all duration-300 text-left ripple`}
+    >
       <div className="text-4xl mb-3">{icon}</div>
       <h4 className="font-bold text-lg mb-1">{title}</h4>
       <p className="text-sm opacity-90">{description}</p>
-    </div>
+    </button>
   )
 }

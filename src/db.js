@@ -29,6 +29,15 @@ db.version(2).stores({
   translationCache: 'word, savedAt'
 });
 
+db.version(3).stores({
+  books: '++id, cloudId, title, content, language, uploadDate, lastReadPosition, totalSentences, progress',
+  words: '++id, word, translation, sentence, bookId, dateAdded, status, reviewCount, easeFactor, interval, dueDate',
+  flashcards: '++id, wordId, front, back, ease, interval, repetitions, dueDate, lastReview',
+  stats: '++id, date, readingTime, wordsLearned, cardsReviewed, speakingPractice, streak',
+  settings: 'key, value',
+  translationCache: 'word, savedAt'
+});
+
 // Default settings
 export const defaultSettings = {
   dailyCardLimit: 10,
@@ -99,7 +108,7 @@ export function calculateNextReview(quality, easeFactor, interval, repetitions) 
 }
 
 // Add a new book
-export async function addBook(title, content) {
+export async function addBook(title, content, extra = {}) {
   const sentences = content.match(/[^.!?]+[.!?]+/g) || [];
   const book = {
     title,
@@ -108,7 +117,9 @@ export async function addBook(title, content) {
     uploadDate: new Date(),
     lastReadPosition: 0,
     totalSentences: sentences.length,
-    progress: 0
+    progress: 0,
+    cloudId: extra.cloudId || crypto.randomUUID(),
+    synced: Boolean(extra.synced)
   };
   return await db.books.add(book);
 }

@@ -80,8 +80,8 @@ export async function parseEpub(file) {
  */
 export async function parsePdf(file) {
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    const loadingTask = pdfjsLib.getDocument(arrayBuffer);
+    const data = new Uint8Array(await file.arrayBuffer());
+    const loadingTask = pdfjsLib.getDocument({ data });
     const pdf = await loadingTask.promise;
     
     const title = file.name.replace(/\.[^/.]+$/, "");
@@ -95,16 +95,24 @@ export async function parsePdf(file) {
       fullText += pageText + '\n\n';
     }
     
+    const content = fullText.replace(/[ \t]+\n/g, '\n').trim();
+    if (!content) {
+      return {
+        success: false,
+        error: 'Bu PDF içinde seçilebilir yazı yok. Yazıyı kopyalayıp aşağıdaki kutuya yapıştır.'
+      };
+    }
+
     return {
       title,
-      content: fullText.trim(),
+      content,
       success: true
     };
   } catch (error) {
     console.error('Error parsing PDF:', error);
     return {
       success: false,
-      error: error.message
+      error: 'PDF okunamadı. Dosyayı tekrar seç veya metni yapıştır.'
     };
   }
 }

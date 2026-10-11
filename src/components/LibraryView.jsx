@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react'
 import { db, addBook } from '../db'
 import { parseFile } from '../utils/fileParser'
+import { forgetSharedBook, syncBooks } from '../utils/librarySync'
 
 export default function LibraryView({ onBookSelect }) {
   const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [showExportImport, setShowExportImport] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [draftTitle, setDraftTitle] = useState('')
+  const [draftText, setDraftText] = useState('')
 
   useEffect(() => {
     loadBooks()
@@ -14,10 +18,12 @@ export default function LibraryView({ onBookSelect }) {
 
   const loadBooks = async () => {
     try {
-      const allBooks = await db.books.toArray()
-      setBooks(allBooks)
+      const shared = await syncBooks()
+      setBooks(await db.books.toArray())
+      return Boolean(shared?.ok)
     } catch (error) {
       console.error('Error loading books:', error)
+      return false
     } finally {
       setLoading(false)
     }
@@ -31,16 +37,18 @@ export default function LibraryView({ onBookSelect }) {
     try {
       const result = await parseFile(file)
       
-      if (result.success) {
+      if (result.success && result.content?.trim()) {
         await addBook(result.title, result.content)
-        await loadBooks()
-        alert(`✅ "${result.title}" başarıyla yüklendi!`)
+        const shared = await loadBooks()
+        setNotice(shared
+          ? `"${result.title}" kaydedildi. Diğer telefonda sayfayı yenile.`
+          : `"${result.title}" bu telefona kaydedildi.`)
       } else {
-        alert(`❌ ${result.error}`)
+        setNotice(result.error || 'Dosya okunamadı')
       }
     } catch (error) {
       console.error('Error uploading book:', error)
-      alert('❌ Dosya yüklenirken hata oluştu')
+      setNotice('Dosya kaydedilemedi. Tekrar dene veya metni yapıştır.')
     } finally {
       setUploading(false)
       event.target.value = ''
@@ -131,6 +139,8 @@ export default function LibraryView({ onBookSelect }) {
     }
 
     try {
+      const book = books.find((item) => item.id === bookId)
+      if (book?.cloudId) await forgetSharedBook(book.cloudId)
       await db.books.delete(bookId)
       await loadBooks()
     } catch (error) {
@@ -150,7 +160,11 @@ export default function LibraryView({ onBookSelect }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between animate-fade-in">
+      {notice && (
+        <div className="glass-card px-4 py-3 text-sm text-gray-200">{notice}</div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 animate-fade-in">
         <div>
           <h2 className="text-2xl font-bold mb-1">📚 Kitaplık</h2>
           <p className="text-gray-400 text-sm">
@@ -221,6 +235,52 @@ export default function LibraryView({ onBookSelect }) {
         </div>
       )}
 
+      <form
+        className="glass-card p-4 space-y-3"
+        onSubmit={async (event) => {
+          event.preventDefault()
+          const content = draftText.trim()
+          if (!content) {
+            setNotice('Kaydetmek için metni yapıştır.')
+            return
+          }
+          const title = draftTitle.trim() || 'Yeni metin'
+          setUploading(true)
+          try {
+            await addBook(title, content)
+            setDraftTitle('')
+            setDraftText('')
+            const shared = await loadBooks()
+            setNotice(shared
+              ? `"${title}" kaydedildi. Diğer telefonda sayfayı yenile.`
+              : `"${title}" bu telefona kaydedildi.`)
+          } catch (error) {
+            console.error(error)
+            setNotice('Metin kaydedilemedi.')
+          } finally {
+            setUploading(false)
+          }
+        }}
+      >
+        <h3 className="font-semibold">Metin yapıştır</h3>
+        <input
+          value={draftTitle}
+          onChange={(event) => setDraftTitle(event.target.value)}
+          placeholder="Kitap adı"
+          className="w-full rounded-xl bg-white/10 px-4 py-3 outline-none"
+        />
+        <textarea
+          value={draftText}
+          onChange={(event) => setDraftText(event.target.value)}
+          placeholder="İngilizce metni buraya yapıştır"
+          rows={5}
+          className="w-full rounded-xl bg-white/10 px-4 py-3 outline-none"
+        />
+        <button type="submit" className="btn-gradient px-5 py-3" disabled={uploading}>
+          Kaydet
+        </button>
+      </form>
+
       {/* Empty State */}
       {books.length === 0 && (
         <div className="glass-card p-12 text-center animate-scale-in">
@@ -233,8 +293,8 @@ export default function LibraryView({ onBookSelect }) {
             İlk Kitabını Yükle 🚀
             <input
               type="file"
-              accept=".txt,.epub"
-              onChange={handleFileUpload}
+            accept=".txt,.epub,.pdf"
+            onChange={handleFileUpload}
               className="hidden"
             />
           </label>
@@ -264,7 +324,7 @@ export default function LibraryView({ onBookSelect }) {
         </h4>
         <ul className="text-sm text-gray-300 space-y-2">
           <li>• .txt, .epub ve .pdf formatındaki dosyaları yükleyebilirsin</li>
-          <li>• Kitapların cihazında saklanır, internet gerekmez</li>
+          <li>• Kitap bu telefonda kalır. Bağlantı açıksa diğer telefonda yenileyince de görünür</li>
           <li>• Her kitapta kaldığın yer otomatik kaydedilir</li>
           <li>• 💾 butonundan verilerini yedekleyip başka cihaza taşıyabilirsin</li>
         </ul>

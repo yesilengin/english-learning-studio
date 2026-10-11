@@ -28,6 +28,7 @@
     "vite-plugin-pwa": "^2.0.0"
   },
   "dependencies": {
+    "@vercel/blob": "^2.8.1",
     "epubjs": "^0.3.93",
     "pdfjs-dist": "^6.4.299"
   }
