@@ -21,6 +21,11 @@ export default function ReaderView({ book, onBack }) {
   const sentenceRef = useRef('')
   const readingTimerRef = useRef(null)
   const readingStartTime = useRef(Date.now())
+  const heardRef = useRef('')
+  const holdingRef = useRef(false)
+  const silenceTimerRef = useRef(null)
+  const noSpeechTimerRef = useRef(null)
+  const maxListenTimerRef = useRef(null)
 
   useEffect(() => {
     if (!book) return
@@ -51,6 +56,9 @@ export default function ReaderView({ book, onBack }) {
       stopSpeech()
       stopSentenceAudio()
       
+      clearTimeout(silenceTimerRef.current)
+      clearTimeout(noSpeechTimerRef.current)
+      clearTimeout(maxListenTimerRef.current)
       if (recognitionRef.current) {
         try { recognitionRef.current.abort() } catch { /* already stopped */ }
       }
@@ -127,23 +135,42 @@ export default function ReaderView({ book, onBack }) {
     setIsSpeaking(false)
   }
 
-  const heardRef = useRef('')
-  const holdingRef = useRef(false)
+  const clearListenTimers = () => {
+    clearTimeout(silenceTimerRef.current)
+    clearTimeout(noSpeechTimerRef.current)
+    clearTimeout(maxListenTimerRef.current)
+    silenceTimerRef.current = null
+    noSpeechTimerRef.current = null
+    maxListenTimerRef.current = null
+  }
 
   const finishListening = () => {
+    if (!holdingRef.current) return
+    clearListenTimers()
     holdingRef.current = false
     const spoken = heardRef.current
+    const recognition = recognitionRef.current
     recognitionRef.current = null
     setIsListening(false)
+    try { recognition?.abort() } catch { /* mic already closed */ }
     if (spoken) {
       setRecognizedText(spoken)
       calculateAccuracy(sentenceRef.current, spoken)
     }
   }
 
+  const armSilenceStop = () => {
+    clearTimeout(silenceTimerRef.current)
+    silenceTimerRef.current = setTimeout(() => {
+      try { recognitionRef.current?.stop() } catch { /* already closing */ }
+      setTimeout(() => finishListening(), 350)
+    }, 1000)
+  }
+
   const startListening = () => {
     if (holdingRef.current) {
       try { recognitionRef.current?.stop() } catch { /* already closing */ }
+      finishListening()
       return
     }
 
@@ -167,21 +194,24 @@ export default function ReaderView({ book, onBack }) {
 
     const recognition = new SpeechRecognition()
     recognition.lang = 'en-US'
-    recognition.continuous = false
+    recognition.continuous = true
     recognition.interimResults = true
     recognition.maxAlternatives = 1
     recognition.onresult = (event) => {
-      let spoken = ''
-      for (let index = 0; index < event.results.length; index += 1) {
-        const piece = event.results[index][0]?.transcript?.trim()
-        if (piece) spoken = piece
-      }
+      if (!holdingRef.current) return
+      const spoken = Array.from(event.results)
+        .map((result) => result[0]?.transcript?.trim())
+        .filter(Boolean)
+        .join(' ')
       if (!spoken) return
       heardRef.current = spoken
       setRecognizedText(spoken)
+      clearTimeout(noSpeechTimerRef.current)
+      armSilenceStop()
     }
     recognition.onerror = (event) => {
       if (event.error === 'not-allowed') {
+        clearListenTimers()
         holdingRef.current = false
         setIsListening(false)
         setListenError('Mikrofon izni gerekli.')
@@ -194,10 +224,15 @@ export default function ReaderView({ book, onBack }) {
     }
 
     recognitionRef.current = recognition
+    maxListenTimerRef.current = setTimeout(() => finishListening(), 12000)
+    noSpeechTimerRef.current = setTimeout(() => {
+      if (!heardRef.current) finishListening()
+    }, 4000)
     try {
       recognition.start()
     } catch (error) {
       console.error('Recognition start error:', error)
+      clearListenTimers()
       holdingRef.current = false
       setIsListening(false)
     }
