@@ -148,15 +148,15 @@ export default function ReaderView({ book, onBack }) {
 
     const recognition = new SpeechRecognition()
     recognition.lang = 'en-US'
-    recognition.continuous = true
+    recognition.continuous = false
     recognition.interimResults = true
+    recognition.maxAlternatives = 1
     recognition.onresult = (event) => {
-      let transcript = ''
-      for (let index = 0; index < event.results.length; index += 1) {
-        transcript += `${event.results[index][0].transcript} `
-      }
-      heardRef.current = transcript.trim()
-      setRecognizedText(heardRef.current)
+      const last = event.results[event.results.length - 1]
+      const transcript = last?.[0]?.transcript?.trim()
+      if (!transcript) return
+      heardRef.current = transcript
+      setRecognizedText(transcript)
     }
     recognition.onerror = (event) => {
       if (event.error === 'not-allowed') {
@@ -166,10 +166,11 @@ export default function ReaderView({ book, onBack }) {
       }
     }
     recognition.onend = () => {
-      if (holdingRef.current) {
-        window.setTimeout(openRecognition, 120)
+      if (holdingRef.current && !heardRef.current) {
+        window.setTimeout(openRecognition, 150)
         return
       }
+      if (holdingRef.current) return
       setIsListening(false)
       if (heardRef.current) calculateAccuracy(sentenceRef.current, heardRef.current)
     }
