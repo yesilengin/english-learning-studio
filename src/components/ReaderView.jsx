@@ -130,58 +130,23 @@ export default function ReaderView({ book, onBack }) {
   const heardRef = useRef('')
   const holdingRef = useRef(false)
 
-  const stopListening = () => {
-    if (!holdingRef.current) return
+  const finishListening = () => {
     holdingRef.current = false
     const spoken = heardRef.current
-    try { recognitionRef.current?.abort() } catch { /* already closed */ }
     recognitionRef.current = null
     setIsListening(false)
-    setRecognizedText(spoken)
-    if (spoken) calculateAccuracy(sentenceRef.current, spoken)
-  }
-
-  const openRecognition = () => {
-    if (!holdingRef.current) return
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SpeechRecognition) return
-
-    const recognition = new SpeechRecognition()
-    recognition.lang = 'en-US'
-    recognition.continuous = false
-    recognition.interimResults = true
-    recognition.maxAlternatives = 1
-    recognition.onresult = (event) => {
-      if (!holdingRef.current) return
-      const last = event.results[event.results.length - 1]
-      const transcript = last?.[0]?.transcript?.trim()
-      if (!transcript) return
-      heardRef.current = transcript
-      setRecognizedText(transcript)
-    }
-    recognition.onerror = (event) => {
-      if (event.error === 'not-allowed') {
-        holdingRef.current = false
-        setIsListening(false)
-        setListenError('Mikrofon izni gerekli.')
-      }
-    }
-    recognition.onend = () => {
-      if (holdingRef.current && !heardRef.current) {
-        window.setTimeout(openRecognition, 80)
-      }
-    }
-
-    recognitionRef.current = recognition
-    try {
-      recognition.start()
-    } catch {
-      window.setTimeout(openRecognition, 200)
+    if (spoken) {
+      setRecognizedText(spoken)
+      calculateAccuracy(sentenceRef.current, spoken)
     }
   }
 
   const startListening = () => {
-    if (holdingRef.current) return
+    if (holdingRef.current) {
+      try { recognitionRef.current?.stop() } catch { /* already closing */ }
+      return
+    }
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setListenError('Konuşma tanıma bu cihazda desteklenmiyor.')
@@ -199,7 +164,43 @@ export default function ReaderView({ book, onBack }) {
     setAccuracy(null)
     setListenError('')
     setIsListening(true)
-    openRecognition()
+
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-US'
+    recognition.continuous = false
+    recognition.interimResults = true
+    recognition.maxAlternatives = 1
+    recognition.onresult = (event) => {
+      let spoken = ''
+      for (let index = 0; index < event.results.length; index += 1) {
+        const piece = event.results[index][0]?.transcript?.trim()
+        if (piece) spoken = piece
+      }
+      if (!spoken) return
+      heardRef.current = spoken
+      setRecognizedText(spoken)
+    }
+    recognition.onerror = (event) => {
+      if (event.error === 'not-allowed') {
+        holdingRef.current = false
+        setIsListening(false)
+        setListenError('Mikrofon izni gerekli.')
+        return
+      }
+      if (event.error === 'no-speech' || event.error === 'aborted') return
+    }
+    recognition.onend = () => {
+      finishListening()
+    }
+
+    recognitionRef.current = recognition
+    try {
+      recognition.start()
+    } catch (error) {
+      console.error('Recognition start error:', error)
+      holdingRef.current = false
+      setIsListening(false)
+    }
   }
 
   const chooseRate = (rate) => {
@@ -378,22 +379,15 @@ export default function ReaderView({ book, onBack }) {
         >
           {isSpeaking ? '⏸️ Durdur' : '🔊 Dinle'}
         </div>
-        <div
-          onPointerDown={(event) => {
-            event.currentTarget.setPointerCapture?.(event.pointerId)
-            startListening()
-          }}
-          onPointerUp={stopListening}
-          onTouchEnd={stopListening}
-          onContextMenu={(event) => event.preventDefault()}
-          className={`
-            py-4 text-lg font-semibold rounded-xl cursor-pointer select-none text-center
-            ${isListening ? 'bg-danger-500' : 'bg-success-500'}
-          `}
-          style={{ touchAction: 'none' }}
+        <button
+          type="button"
+          onClick={startListening}
+          className={`py-4 text-lg font-semibold rounded-xl ${
+            isListening ? 'bg-danger-500' : 'bg-success-500'
+          }`}
         >
-          {isListening ? '🎤 Dinliyorum...' : '🎤 Basılı tut'}
-        </div>
+          {isListening ? '🎤 Dinliyorum...' : '🎤 Ben Söyleyeyim'}
+        </button>
       </div>
       <div className="grid grid-cols-3 gap-2">
         {[
